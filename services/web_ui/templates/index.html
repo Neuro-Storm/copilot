@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1><i class="fas fa-tachometer-alt"></i> Панель управления</h1>
+        <p class="text-muted">Мониторинг и управление процессом обработки файлов</p>
+    </div>
+</div>
+
+<!-- Статус сервиса -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Состояние сервиса</h5>
+                <div>
+                    {% if is_running %}
+                    <span class="badge bg-success"><i class="fas fa-play-circle"></i> РАБОТАЕТ</span>
+                    <a href="{{ url_for('stop_manager') }}" class="btn btn-sm btn-outline-danger ms-2">
+                        <i class="fas fa-stop"></i> Остановить
+                    </a>
+                    {% else %}
+                    <span class="badge bg-warning text-dark"><i class="fas fa-pause-circle"></i> ОСТАНОВЛЕН</span>
+                    <a href="{{ url_for('start_manager') }}" class="btn btn-sm btn-outline-success ms-2">
+                        <i class="fas fa-play"></i> Запустить
+                    </a>
+                    {% endif %}
+                    <button class="btn btn-sm btn-outline-primary ms-2" onclick="manualScan()">
+                        <i class="fas fa-sync-alt"></i> Ручное сканирование
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 mb-3">
+                        <div class="card stats-card h-100">
+                            <div class="card-body">
+                                <h3 class="text-primary"><i class="fas fa-file"></i> <span id="total-files">{{ stats.total_files }}</span></h3>
+                                <p class="text-muted">Всего файлов</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="card stats-card h-100">
+                            <div class="card-body">
+                                <h3 class="text-success"><i class="fas fa-check-circle"></i> <span class="status-count" data-status="indexed">{{ stats.status_counts.indexed or 0 }}</span></h3>
+                                <p class="text-muted">Проиндексировано</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="card stats-card h-100">
+                            <div class="card-body">
+                                <h3 class="text-warning"><i class="fas fa-clock"></i> <span class="status-count" data-status="pending">{{ stats.status_counts.pending or 0 }}</span></h3>
+                                <p class="text-muted">В обработке</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="card stats-card h-100">
+                            <div class="card-body">
+                                <h3 class="text-danger"><i class="fas fa-exclamation-triangle"></i> <span class="status-count" data-status="failed">{{ stats.status_counts.failed or 0 }}</span></h3>
+                                <p class="text-muted">С ошибками</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Последние файлы -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-history"></i> Последние файлы</h5>
+                <a href="{{ url_for('files_page') }}" class="btn btn-outline-primary btn-sm">Все файлы</a>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Имя файла</th>
+                                <th>Статус</th>
+                                <th>Ошибка</th>
+                                <th>Обновлено</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recent-files-tbody">
+                            {% for file in files %}
+                            {% set status_class = 'bg-secondary' %}
+                            {% if file.status == 'indexed' %}{% set status_class = 'bg-success' %}
+                            {% elif file.status == 'pending' %}{% set status_class = 'bg-warning' %}
+                            {% elif file.status == 'processing' %}{% set status_class = 'bg-info' %}
+                            {% elif file.status == 'failed' %}{% set status_class = 'bg-danger' %}
+                            {% elif file.status == 'conversion_success_only' %}{% set status_class = 'bg-info' %}
+                            {% elif file.status == 'deleted' %}{% set status_class = 'bg-dark' %}{% endif %}
+
+                            <tr class="file-row">
+                                <td>{{ file.id }}</td>
+                                <td title="{{ file.file_path }}">{{ file.filename[:50] }}{% if file.filename|length > 50 %}...{% endif %}</td>
+                                <td><span class="badge {{ status_class }} status-badge">{{ file.status }}</span></td>
+                                <td>
+                                    {% if file.error_message %}
+                                        <span class="text-danger" title="{{ file.error_message }}">
+                                            <i class="fas fa-exclamation-triangle"></i>
+                                            {{ file.error_message[:30] }}{% if file.error_message|length > 30 %}...{% endif %}
+                                        </span>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>{{ file.updated_at }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary action-btn" onclick="retryFile({{ file.id }})">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteFile({{ file.id }})">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Информация о системе -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> Информация о системе</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Конфигурация</h6>
+                        <ul class="list-unstyled">
+                            <li><i class="fas fa-folder text-primary"></i> Директория файлов: <code>{{ cfg.get('files_dir') }}</code></li>
+                            <li><i class="fas fa-database text-primary"></i> База данных: <code>{{ cfg.get('db_path') }}</code></li>
+                            <li><i class="fas fa-clock text-primary"></i> Интервал сканирования: {{ cfg.get('scan_interval') }} сек</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Состояние</h6>
+                        <ul class="list-unstyled">
+                            <li><i class="fas fa-calendar text-info"></i> Последнее обновление: <span id="last-update">{{ stats.last_update or 'Нет данных' }}</span></li>
+                            <li><i class="fas fa-server text-info"></i> Состояние: {% if is_running %}Активен{% else %}Остановлен{% endif %}</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

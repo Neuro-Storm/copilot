@@ -1,0 +1,24 @@
+syntax = "proto3";
+package chunker;
+
+service ChunkerService {
+  rpc ChunkIt(ChunkRequest) returns (stream Chunk);
+}
+
+message ChunkRequest {
+  // oneof экономит память: передается либо то, либо другое
+  oneof source {
+    string file_path = 1;  // Для локальных файлов (быстро)
+    string content = 2;    // Для данных из памяти/сети (гибко)
+  }
+  int32 chunk_size = 3;
+  int32 overlap = 4;
+}
+
+message Chunk {
+  string text = 1;
+  int32 start = 2;
+  int32 end = 3;
+  // Добавляем метаданные (например, заголовок раздела)
+  map<string, string> metadata = 4;
+}

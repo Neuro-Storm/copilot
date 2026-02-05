@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Менеджер файлов RAG-системы</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            padding-top: 20px;
+            padding-bottom: 20px;
+        }
+        .stats-card {
+            border-left: 4px solid #007bff;
+        }
+        .status-badge {
+            font-size: 0.8em;
+        }
+        .file-row:hover {
+            background-color: #f8f9fa;
+        }
+        .action-btn {
+            margin-right: 5px;
+        }
+        .progress-bar-animated {
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+        @keyframes progress-bar-stripes {
+            0% { background-position: 1rem 0; }
+            100% { background-position: 0 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="{{ url_for('index') }}">
+                    <i class="fas fa-file-alt"></i> Менеджер файлов RAG
+                </a>
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="{{ url_for('index') }}">Главная</a>
+                    <a class="nav-link" href="{{ url_for('files_page') }}">Файлы</a>
+                </div>
+            </div>
+        </nav>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="alert alert-info">
+                    {% for message in messages %}
+                        {{ message }}
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+
+        <footer class="mt-5 pt-4 border-top">
+            <div class="row">
+                <div class="col-md-12 text-center">
+                    <small>Менеджер файлов RAG-системы &copy; {{ year }}</small>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        // Функция для обновления статистики
+        function updateStats() {
+            $.ajax({
+                url: '/api/stats',
+                method: 'GET',
+                xhrFields: {
+                    withCredentials: true  // Include cookies/credentials in cross-origin requests if needed
+                },
+                success: function(data) {
+                    $('#total-files').text(data.total_files);
+
+                    // Обновляем счетчики статусов
+                    $('.status-count').each(function() {
+                        const status = $(this).data('status');
+                        const count = data.status_counts[status] || 0;
+                        $(this).text(count);
+                    });
+
+                    $('#last-update').text(data.last_update || 'Нет данных');
+                },
+                error: function() {
+                    console.log('Не удалось получить статистику');
+                }
+            });
+        }
+
+        // Функция для генерации строки таблицы файла
+        function generateFileRow(file) {
+            let statusClass = '';
+            switch(file.status) {
+                case 'indexed':
+                    statusClass = 'bg-success';
+                    break;
+                case 'pending':
+                    statusClass = 'bg-warning';
+                    break;
+                case 'processing':
+                    statusClass = 'bg-info';
+                    break;
+                case 'failed':
+                    statusClass = 'bg-danger';
+                    break;
+                case 'conversion_success_only':
+                    statusClass = 'bg-info';
+                    break;
+                case 'deleted':
+                    statusClass = 'bg-secondary';
+                    break;
+                default:
+                    statusClass = 'bg-light';
+            }
+
+            const errorMessage = file.error_message ?
+                `<span class="text-danger" title="${file.error_message}">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    ${file.error_message.substring(0, 30)}${file.error_message.length > 30 ? '...' : ''}
+                </span>` : '-';
+
+            return `
+                <tr class="file-row">
+                    <td>${file.id}</td>
+                    <td title="${file.file_path}">${file.filename.substring(0, 30)}${file.filename.length > 30 ? '...' : ''}</td>
+                    <td><span class="badge ${statusClass} status-badge">${file.status}</span></td>
+                    <td>${errorMessage}</td>
+                    <td>${file.updated_at}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary action-btn" onclick="retryFile(${file.id})">
+                            <i class="fas fa-redo"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteFile(${file.id})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Функция для обновления списка файлов на главной странице
+        function updateFiles() {
+            $.ajax({
+                url: '/api/files?limit=10',
+                method: 'GET',
+                xhrFields: {
+                    withCredentials: true  // Include cookies/credentials in cross-origin requests if needed
+                },
+                success: function(data) {
+                    const tbody = $('#recent-files-tbody');
+                    if (tbody.length > 0) {  // Проверяем, существует ли таблица
+                        tbody.empty();
+                        data.files.forEach(function(file) {
+                            const row = generateFileRow(file);
+                            tbody.append(row);
+                        });
+                    }
+                },
+                error: function() {
+                    console.log('Не удалось получить список файлов');
+                }
+            });
+        }
+
+        // Функция для обновления состояния сервиса
+        function updateServiceStatus() {
+            // Здесь можно добавить логику обновления состояния сервиса
+            // В зависимости от того, запущен ли фоновый процесс
+        }
+
+        // Функция для повторной обработки файла
+        function retryFile(fileId) {
+            if (confirm('Вы уверены, что хотите повторить обработку этого файла?')) {
+                $.ajax({
+                    url: `/file/${fileId}/retry`,
+                    method: 'POST',
+                    xhrFields: {
+                        withCredentials: true  // Include cookies/credentials in cross-origin requests if needed
+                    },
+                    success: function(data) {
+                        if (data.success) {
+                            alert('Файл помечен для повторной обработки');
+                            updateFiles(); // Обновляем список файлов
+                        } else {
+                            alert('Ошибка при повторной обработке: ' + data.error);
+                        }
+                    },
+                    error: function(xhr) {
+                        // Проверяем, есть ли сообщение об ошибке в теле ответа
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            alert('Ошибка при отправке запроса: ' + response.error);
+                        } catch (e) {
+                            alert('Ошибка при отправке запроса: ' + xhr.status + ' ' + xhr.statusText);
+                        }
+                    }
+                });
+            }
+        }
+
+        // Функция для удаления файла
+        function deleteFile(fileId) {
+            if (confirm('Вы уверены, что хотите удалить этот файл из системы?')) {
+                $.ajax({
+                    url: `/file/${fileId}/delete`,
+                    method: 'POST',
+                    xhrFields: {
+                        withCredentials: true  // Include cookies/credentials in cross-origin requests if needed
+                    },
+                    success: function(data) {
+                        if (data.success) {
+                            alert('Файл помечен как удаленный');
+                            updateFiles(); // Обновляем список файлов
+                        } else {
+                            alert('Ошибка при удалении: ' + data.error);
+                        }
+                    },
+                    error: function(xhr) {
+                        // Проверяем, есть ли сообщение об ошибке в теле ответа
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            alert('Ошибка при отправке запроса: ' + response.error);
+                        } catch (e) {
+                            alert('Ошибка при отправке запроса: ' + xhr.status + ' ' + xhr.statusText);
+                        }
+                    }
+                });
+            }
+        }
+
+        // Функция для ручного сканирования
+        function manualScan() {
+            $.ajax({
+                url: '/manual_scan',
+                method: 'POST',
+                xhrFields: {
+                    withCredentials: true  // Include cookies/credentials in cross-origin requests if needed
+                },
+                success: function(data) {
+                    if (data.success) {
+                        alert(`Ручное сканирование завершено. Найдено новых файлов: ${data.added_count}`);
+                        updateStats();
+                        updateFiles();
+                    } else {
+                        alert('Ошибка при ручном сканировании: ' + data.error);
+                    }
+                },
+                error: function(xhr) {
+                    // Проверяем, есть ли сообщение об ошибке в теле ответа
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        alert('Ошибка при отправке запроса на ручное сканирование: ' + response.error);
+                    } catch (e) {
+                        alert('Ошибка при отправке запроса на ручное сканирование: ' + xhr.status + ' ' + xhr.statusText);
+                    }
+                }
+            });
+        }
+
+        // Обновляем данные каждые 30 секунд (уменьшаем частоту для повышения отзывчивости)
+        setInterval(function() {
+            updateStats();
+            updateFiles();
+            updateServiceStatus();
+        }, 30000);
+
+        // Функция для обновления списка файлов на странице файлов
+        function updateAllFiles(page = 1, limit = 50, status = '') {
+            // Формируем URL с параметрами
+            let url = `/api/files?page=${page}&limit=${limit}`;
+            if (status) {
+                url += `&status=${encodeURIComponent(status)}`;
+            }
+
+            $.ajax({
+                url: url,
+                method: 'GET',
+                xhrFields: {
+                    withCredentials: true
+                },
+                success: function(data) {
+                    const tbody = $('#files-tbody');
+                    if (tbody.length > 0) {  // Проверяем, существует ли таблица на странице файлов
+                        tbody.empty();
+                        data.files.forEach(function(file) {
+                            const row = generateFileRow(file);
+                            tbody.append(row);
+                        });
+
+                        // Обновляем пагинацию, если она существует
+                        updatePagination(data.pagination);
+                    }
+                },
+                error: function() {
+                    console.log('Не удалось получить список файлов');
+                }
+            });
+        }
+
+        // Функция для обновления пагинации
+        function updatePagination(paginationData) {
+            if (!paginationData) return;
+
+            const paginationContainer = $('.pagination');
+            if (paginationContainer.length > 0) {
+                paginationContainer.empty();
+
+                // Кнопка "Предыдущая"
+                if (paginationData.page > 1) {
+                    paginationContainer.append(`
+                        <li class="page-item">
+                            <a class="page-link" href="#" onclick="changePage(${paginationData.page - 1})">Предыдущая</a>
+                        </li>
+                    `);
+                }
+
+                // Страницы
+                const startPage = Math.max(1, paginationData.page - 2);
+                const endPage = Math.min(paginationData.total_pages, paginationData.page + 2);
+
+                for (let p = startPage; p <= endPage; p++) {
+                    paginationContainer.append(`
+                        <li class="page-item ${p === paginationData.page ? 'active' : ''}">
+                            <a class="page-link" href="#" onclick="changePage(${p})">${p}</a>
+                        </li>
+                    `);
+                }
+
+                // Кнопка "Следующая"
+                if (paginationData.page < paginationData.total_pages) {
+                    paginationContainer.append(`
+                        <li class="page-item">
+                            <a class="page-link" href="#" onclick="changePage(${paginationData.page + 1})">Следующая</a>
+                        </li>
+                    `);
+                }
+            }
+        }
+
+        // Функция для изменения страницы
+        function changePage(page) {
+            const status = $('#status-filter').val();
+            const limit = parseInt($('#limit').val()) || 50;
+            updateAllFiles(page, limit, status);
+        }
+
+        // Инициализация при загрузке страницы
+        $(document).ready(function() {
+            updateStats();
+            updateFiles();
+            updateServiceStatus();
+
+            // Если находимся на странице файлов, обновляем полный список
+            if ($('#files-tbody').length > 0) {
+                // Получаем параметры из URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const page = parseInt(urlParams.get('page')) || 1;
+                const limit = parseInt(urlParams.get('limit')) || 50;
+                const status = urlParams.get('status') || '';
+
+                updateAllFiles(page, limit, status);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1><i class="fas fa-files-o"></i> Управление файлами</h1>
+        <p class="text-muted">Просмотр и управление файлами в системе</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Фильтры</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="manualScan()">
+                    <i class="fas fa-sync-alt"></i> Ручное сканирование
+                </button>
+            </div>
+            <div class="card-body">
+                <form id="filter-form" class="row g-3">
+                    <div class="col-md-4">
+                        <label for="status-filter" class="form-label">Статус</label>
+                        <select id="status-filter" class="form-select">
+                            <option value="">Все статусы</option>
+                            {% for status in statuses %}
+                            <option value="{{ status }}" {% if request.args.get('status') == status %}selected{% endif %}>{{ status }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="limit" class="form-label">На странице</label>
+                        <select id="limit" class="form-select">
+                            <option value="10" {% if request.args.get('limit', '10') == '10' %}selected{% endif %}>10</option>
+                            <option value="25" {% if request.args.get('limit', '10') == '25' %}selected{% endif %}>25</option>
+                            <option value="50" {% if request.args.get('limit', '10') == '50' %}selected{% endif %}>50</option>
+                            <option value="100" {% if request.args.get('limit', '10') == '100' %}selected{% endif %}>100</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary me-2">Применить</button>
+                        <button type="reset" class="btn btn-outline-secondary">Сбросить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-list"></i> Список файлов</h5>
+                <div>
+                    <span class="text-muted">Всего: {{ total_count }}</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Имя файла</th>
+                                <th>Путь к файлу</th>
+                                <th>Путь к MD</th>
+                                <th>Статус</th>
+                                <th>Ошибка</th>
+                                <th>Обновлено</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="files-tbody">
+                            {% for file in files %}
+                            {% set status_class = 'bg-secondary' %}
+                            {% if file.status == 'indexed' %}{% set status_class = 'bg-success' %}
+                            {% elif file.status == 'pending' %}{% set status_class = 'bg-warning' %}
+                            {% elif file.status == 'processing' %}{% set status_class = 'bg-info' %}
+                            {% elif file.status == 'failed' %}{% set status_class = 'bg-danger' %}
+                            {% elif file.status == 'conversion_success_only' %}{% set status_class = 'bg-info' %}
+                            {% elif file.status == 'deleted' %}{% set status_class = 'bg-dark' %}{% endif %}
+
+                            <tr class="file-row">
+                                <td>{{ file.id }}</td>
+                                <td title="{{ file.filename }}">{{ file.filename[:30] }}{% if file.filename|length > 30 %}...{% endif %}</td>
+                                <td title="{{ file.file_path }}"><small>{{ file.file_path[:50] }}{% if file.file_path|length > 50 %}...{% endif %}</small></td>
+                                <td>{% if file.md_path %}<small>{{ file.md_path[:50] }}{% if file.md_path|length > 50 %}...{% endif %}</small>{% else %}-{% endif %}</td>
+                                <td><span class="badge {{ status_class }} status-badge">{{ file.status }}</span></td>
+                                <td>
+                                    {% if file.error_message %}
+                                        <span class="text-danger" title="{{ file.error_message }}">
+                                            <i class="fas fa-exclamation-triangle"></i>
+                                            {{ file.error_message[:50] }}{% if file.error_message|length > 50 %}...{% endif %}
+                                        </span>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>{{ file.updated_at }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary action-btn" title="Повторить обработку" onclick="retryFile({{ file.id }})">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger action-btn" title="Удалить" onclick="deleteFile({{ file.id }})">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Пагинация -->
+                {% if total_pages > 1 %}
+                <nav aria-label="Навигация по страницам">
+                    <ul class="pagination justify-content-center">
+                        {% if page > 1 %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page - 1 }}&limit={{ request.args.get('limit', 50) }}&status={{ request.args.get('status', '') }}">Предыдущая</a>
+                        </li>
+                        {% endif %}
+                        
+                        {% for p in range(max(1, page - 2), min(total_pages + 1, page + 3)) %}
+                        <li class="page-item {% if p == page %}active{% endif %}">
+                            <a class="page-link" href="?page={{ p }}&limit={{ request.args.get('limit', 50) }}&status={{ request.args.get('status', '') }}">{{ p }}</a>
+                        </li>
+                        {% endfor %}
+                        
+                        {% if page < total_pages %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page + 1 }}&limit={{ request.args.get('limit', 50) }}&status={{ request.args.get('status', '') }}">Следующая</a>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // Обработка формы фильтрации
+    $('#filter-form').on('submit', function(e) {
+        e.preventDefault();
+
+        const status = $('#status-filter').val();
+        const limit = $('#limit').val();
+
+        // Обновляем таблицу файлов с новыми параметрами
+        updateAllFiles(1, parseInt(limit), status); // Переходим на первую страницу при изменении фильтров
+    });
+
+    // Сброс фильтров
+    $('button[type="reset"]').on('click', function() {
+        $('#status-filter').val('');
+        $('#limit').val('50');
+        updateAllFiles(1, 50, ''); // Сбрасываем на первую страницу с 50 файлами и без статуса
+    });
+});
+</script>
+{% endblock %}

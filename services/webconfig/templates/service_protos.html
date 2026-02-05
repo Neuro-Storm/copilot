@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ service_name }} Proto файлы - WebConfig</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .service-header {
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .proto-list {
+            margin-top: 20px;
+        }
+        .proto-item {
+            padding: 12px;
+            margin: 10px 0;
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .proto-info {
+            flex-grow: 1;
+        }
+        .proto-name {
+            font-weight: bold;
+            font-size: 1.1em;
+            color: #007bff;
+        }
+        .proto-details {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .proto-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .action-btn {
+            padding: 8px 12px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            background: #f0f0f0;
+            border-radius: 4px;
+            text-decoration: none;
+            color: #333;
+            font-size: 0.9em;
+        }
+        .action-btn:hover {
+            background: #e0e0e0;
+        }
+        .action-edit {
+            background-color: #007bff;
+            color: white;
+        }
+        .action-edit:hover {
+            background-color: #0056b3;
+        }
+        .back-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        .back-btn:hover {
+            background: #5a6268;
+        }
+        .compile-btn {
+            background-color: #28a745;
+            color: white;
+        }
+        .compile-btn:hover {
+            background-color: #218838;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="{{ url_for('view_all_protos') }}" class="back-btn">← Назад к списку всех proto</a>
+        
+        <div class="service-header">
+            <h1>Proto файлы сервиса {{ service_name.title() }}</h1>
+        </div>
+        
+        <div class="proto-list" id="proto-list">
+            {% if proto_files %}
+                {% for proto in proto_files %}
+                <div class="proto-item">
+                    <div class="proto-info">
+                        <div class="proto-name">{{ proto.name }}</div>
+                        <div class="proto-details">Размер: {{ proto.size }} байт, Изменен: {{ proto.modified | timestamp_to_datetime }}</div>
+                    </div>
+                    <div class="proto-actions">
+                        <a href="{{ url_for('edit_proto_file', service_name=service_name, proto_filename=proto.name) }}" class="action-btn action-edit">Редактировать</a>
+                        <button class="action-btn compile-btn" onclick="compileProto('{{ service_name }}', '{{ proto.name }}')">Компилировать</button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>Proto файлы не найдены для сервиса {{ service_name }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function compileProto(serviceName, protoFilename) {
+            if (confirm(`Вы уверены, что хотите скомпилировать ${protoFilename}?`)) {
+                fetch('/api/proto/compile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        service_name: serviceName,
+                        proto_filename: protoFilename
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.message);
+                    } else {
+                        alert('Ошибка компиляции: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при компиляции proto:', error);
+                    alert('Ошибка при компиляции proto');
+                });
+            }
+        }
+    </script>
+</body>
+</html>

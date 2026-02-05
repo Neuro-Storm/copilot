@@ -1,0 +1,57 @@
+# Core dependencies for RAG Copilot microservices
+
+# Web frameworks
+flask
+fastapi
+uvicorn
+
+# gRPC for service communication
+grpcio
+grpcio-tools
+
+# Frontend and templating
+jinja2
+flask-cors
+
+# HTTP requests
+requests
+
+# Environment variables
+python-dotenv
+
+# Database and storage
+qdrant-client
+
+# Process management
+psutil
+
+# Protocol buffers
+protobuf
+
+# Document processing (for converter service)
+docling
+pymupdf
+
+# Text processing and utilities
+nltk
+sentence-transformers
+
+# Machine learning and embeddings
+torch
+transformers
+numpy
+scikit-learn
+
+# LLM integration
+llama-cpp-python
+
+# Type hints
+typing-extensions
+
+# Standard library packages (no need to specify as they come with Python)
+# asyncio
+# logging
+# pathlib
+# concurrent.futures
+# threading
+# sqlite3
