@@ -1,0 +1,7 @@
+{
+  "files_dir": "./files",
+  "db_path": "files.db",
+  "converter_address": "localhost:50053",
+  "indexer_address": "localhost:50054",
+  "scan_interval": 5
+}

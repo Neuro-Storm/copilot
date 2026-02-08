@@ -1,0 +1,17 @@
+{
+  "searcher_host": "localhost",
+  "searcher_port": 50055,
+  "embedder_host": "localhost",
+  "embedder_port": 50051,
+  "qdrant_host": "localhost",
+  "qdrant_port": 6333,
+  "collection_name": "final__888",
+  "vector_name": "dense_vector",
+  "result_count": 10,
+  "grpc_timeout": 10,
+  "with_payload": true,
+  "with_vectors": false,
+  "log_file": "searcher.log",
+  "max_workers": 10,
+  "qdrant_timeout": 10
+}

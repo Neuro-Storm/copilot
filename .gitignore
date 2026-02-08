@@ -156,9 +156,6 @@ services/manager/manager.webconfig.log
 tmp/
 temp/
 
-# Configuration (if they contain sensitive data)
-config.json
-services/*/config.json
 
 # Virtual environments
 venv*/
@@ -172,6 +169,9 @@ ENV*/
 *.zip
 *.tar
 *.gz
+
+# Binary executables
+services/qdrant/qdrant
 
 # Directories that should not be in the repository
 files/

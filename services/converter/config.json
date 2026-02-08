@@ -1,0 +1,31 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 50053
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "converter.log",
+    "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  },
+  "system": {
+    "cpu_threads": 8,
+    "max_concurrent_requests": 1,
+    "workspace_dir": "D:\\Scripts\\RAG\\copilot"
+  },
+  "docling": {
+    "models_path": "./models",
+    "ocr": {
+      "enabled": true,
+      "engine": "easyocr",
+      "force_full_page_ocr": true,
+      "languages": [
+        "ru",
+        "en"
+      ],
+      "use_gpu": false
+    },
+    "table_structure": true,
+    "images_scale": 1.0
+  }
+}
