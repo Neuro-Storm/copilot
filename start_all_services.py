@@ -12,6 +12,7 @@ def start_services():
 
     # Define the services to start
     services = [
+        "auth",       # Auth service (must be started first)
         "chunker",
         "converter",
         "embedder",

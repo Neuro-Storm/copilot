@@ -16,7 +16,7 @@ else
 fi
 
 # Определяем список сервисов
-SERVICES=("chunker" "converter" "embedder" "indexer" "manager" "searcher" "websearch" "webconfig" "web_ui" "generator")
+SERVICES=("auth" "chunker" "converter" "embedder" "indexer" "manager" "searcher" "websearch" "webconfig" "web_ui" "generator")
 
 # Проверяем статус каждого сервиса
 for service in "${SERVICES[@]}"; do

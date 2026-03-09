@@ -16,6 +16,7 @@ fi
 
 # Определяем список сервисов для запуска с их портами
 declare -A SERVICES_PORTS
+SERVICES_PORTS["auth"]="5050"
 SERVICES_PORTS["chunker"]="50052"
 SERVICES_PORTS["converter"]="50053"  # или 50051 в зависимости от конфигурации
 SERVICES_PORTS["embedder"]="50051"
@@ -27,7 +28,7 @@ SERVICES_PORTS["webconfig"]="50055"
 SERVICES_PORTS["web_ui"]="8000"
 SERVICES_PORTS["generator"]="50056"
 
-SERVICES=("chunker" "converter" "embedder" "indexer" "manager" "searcher" "websearch" "webconfig" "web_ui" "generator")
+SERVICES=("auth" "chunker" "converter" "embedder" "indexer" "manager" "searcher" "websearch" "webconfig" "web_ui" "generator")
 
 # Получаем корневую директорию проекта
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"

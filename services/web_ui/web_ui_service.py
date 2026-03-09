@@ -17,7 +17,7 @@
 
 Микросервис включает в себя:
 - Механизм кэширования GET-запросов для повышения производительности
-- Базовую аутентификацию по протоколу HTTP Basic Authentication
+- Токенную аутентификацию через auth-сервис
 - Обработку ошибок и логирование событий
 - Интеграцию с системой конфигурации через файлы и переменные окружения
 """
@@ -37,22 +37,25 @@ import logging
 from functools import wraps
 import hashlib
 
+# Загрузка переменных окружения из .env файла
+from dotenv import load_dotenv
+load_dotenv()
+
+# Загрузка секретного ключа для авторизации
+project_root = Path(__file__).parent.parent.parent
+load_dotenv(project_root / '.env')
+
+# Добавляем common в путь для импорта middleware
+sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+from auth_middleware import require_auth, require_role
+
+AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
+
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
-
-# Загрузка переменных окружения из .env файла
-from dotenv import load_dotenv
-load_dotenv()
-
-# Аутентификация
-# SECURITY: Используется Basic Authentication для защиты веб-интерфейса
-# Учетные данные должны быть установлены через переменные окружения
-AUTH_REQUIRED = os.getenv("WEB_UI_REQUIRE_AUTH", "1").lower() not in ("0", "false", "no")
-AUTH_USERNAME = os.getenv("WEB_UI_USERNAME", "")
-AUTH_PASSWORD = os.getenv("WEB_UI_PASSWORD", "")
 
 # Адрес основного сервиса
 MAIN_SERVICE_URL = os.getenv('MAIN_SERVICE_URL', 'http://localhost:5001')
@@ -61,64 +64,6 @@ MAIN_SERVICE_URL = os.getenv('MAIN_SERVICE_URL', 'http://localhost:5001')
 # Позволяет JavaScript-коду на веб-страницах делать запросы к этому сервису
 # из других доменов, что необходимо для работы AJAX-запросов
 CORS(app)
-
-def _auth_required_response():
-    """Возвращает HTTP 401 ответ с заголовком WWW-Authenticate для аутентификации по протоколу Basic Auth.
-
-    Эта функция формирует стандартный HTTP 401 ответ, который указывает клиенту,
-    что требуется аутентификация с использованием схемы Basic Authentication.
-
-    Returns:
-        Response: HTTP 401 ответ с заголовком аутентификации, указывающим на необходимость
-                 предоставить учетные данные для доступа к защищенному ресурсу
-    """
-    return app.response_class(
-        "Authentication required",
-        401,
-        {"WWW-Authenticate": 'Basic realm="WebUI"'}
-    )
-
-def _is_auth_valid():
-    """Проверяет действительность аутентификации пользователя по протоколу Basic Auth.
-
-    Функция проверяет, включена ли аутентификация в конфигурации, затем извлекает
-    учетные данные из заголовка Authorization и сравнивает их с сохраненными
-    значениями имени пользователя и пароля из переменных окружения.
-
-    Returns:
-        bool: True если аутентификация включена и учетные данные действительны,
-              иначе False
-    """
-    if not AUTH_REQUIRED:
-        return True
-    auth = request.authorization
-    if not auth:
-        return False
-    # SECURITY: Сравнение учетных данных пользователя с сохраненными значениями
-    # Используется простое сравнение строк, так как Basic Auth передает учетные данные в открытом виде
-    return auth.username == AUTH_USERNAME and auth.password == AUTH_PASSWORD
-
-@app.before_request
-def enforce_auth():
-    """Middleware для проверки аутентификации перед обработкой каждого запроса.
-
-    Функция проверяет, включена ли аутентификация и установлены ли учетные данные.
-    Если аутентификация включена, но учетные данные не установлены, возвращается
-    ошибка 500. Если учетные данные предоставлены, но неверны, возвращается
-    ответ с требованием аутентификации (HTTP 401).
-
-    SECURITY: Защита от атак типа "brute force" не реализована в текущей версии.
-    Рекомендуется использовать дополнительные меры безопасности в продакшене.
-    """
-    if AUTH_REQUIRED and (not AUTH_USERNAME or not AUTH_PASSWORD):
-        # SECURITY: Проверка наличия учетных данных для аутентификации
-        return app.response_class(
-            "Auth is required. Set WEB_UI_USERNAME and WEB_UI_PASSWORD.",
-            500
-        )
-    if not _is_auth_valid():
-        # SECURITY: Возвращаем HTTP 401 при неудачной аутентификации
-        return _auth_required_response()
 
 def get_api_url(endpoint):
     """Формирует полный URL для вызова API основного сервиса.
@@ -298,6 +243,11 @@ def index():
         logger.error(f"Ошибка на главной странице: {e}")
         return f"Ошибка: {e}", 500
 
+@app.route('/login')
+def login():
+    """Страница входа."""
+    return render_template('login.html')
+
 @app.route('/files')
 def files_page():
     """Страница со списком всех файлов с возможностью фильтрации и пагинации.
@@ -406,16 +356,21 @@ def api_stats():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/control/start', methods=['POST'])
-def start_manager():
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def start_manager(current_user=None):
     """Запуск менеджера обработки файлов в основном сервисе.
 
     Отправляет команду основному сервису на запуск процесса обработки файлов.
     После успешного запуска перенаправляет пользователя на главную страницу.
 
+    Args:
+        current_user: Данные текущего пользователя из токена
+
     Returns:
         Редирект на главную страницу или JSON-ошибка при неудаче
     """
     try:
+        logger.info(f"[{current_user['username']}] Запуск обработки")
         response = make_request('POST', '/api/control/start')
         if response.status_code == 200:
             return redirect(url_for('index'))
@@ -426,16 +381,21 @@ def start_manager():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/control/stop', methods=['POST'])
-def stop_manager():
+@require_role('admin', secret_key=AUTH_SECRET_KEY)
+def stop_manager(current_user=None):
     """Остановка менеджера обработки файлов в основном сервисе.
 
     Отправляет команду основному сервису на остановку процесса обработки файлов.
     После успешной остановки перенаправляет пользователя на главную страницу.
 
+    Args:
+        current_user: Данные текущего пользователя из токена
+
     Returns:
         Редирект на главную страницу или JSON-ошибка при неудаче
     """
     try:
+        logger.info(f"[{current_user['username']}] Остановка обработки")
         response = make_request('POST', '/api/control/stop')
         if response.status_code == 200:
             return redirect(url_for('index'))
@@ -446,7 +406,8 @@ def stop_manager():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/file/<int:file_id>/retry', methods=['POST'])
-def retry_file_processing(file_id):
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def retry_file_processing(file_id, current_user=None):
     """Повторная попытка обработки файла с указанным ID.
 
     Отправляет команду основному сервису на повторную обработку файла,
@@ -455,11 +416,13 @@ def retry_file_processing(file_id):
 
     Args:
         file_id (int): ID файла для повторной обработки
+        current_user: Данные текущего пользователя из токена
 
     Returns:
         JSON-ответ с результатом операции
     """
     try:
+        logger.info(f"[{current_user['username']}] Повторная обработка файла {file_id}")
         response = make_request('POST', f'/api/file/{file_id}/retry')
         if response.status_code == 200:
             return jsonify(response.json())
@@ -470,7 +433,8 @@ def retry_file_processing(file_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/file/<int:file_id>/delete', methods=['POST'])
-def delete_file(file_id):
+@require_role('admin', secret_key=AUTH_SECRET_KEY)
+def delete_file(file_id, current_user=None):
     """Удаление файла из системы (помечает файл как удаленный).
 
     Отправляет команду основному сервису на удаление файла из базы данных.
@@ -479,11 +443,13 @@ def delete_file(file_id):
 
     Args:
         file_id (int): ID файла для удаления
+        current_user: Данные текущего пользователя из токена
 
     Returns:
         JSON-ответ с результатом операции
     """
     try:
+        logger.info(f"[{current_user['username']}] Удаление файла {file_id}")
         response = make_request('DELETE', f'/api/file/{file_id}')
         if response.status_code == 200:
             return jsonify(response.json())
@@ -494,7 +460,8 @@ def delete_file(file_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/manual_scan', methods=['POST'])
-def manual_scan():
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def manual_scan(current_user=None):
     """Инициирует ручное сканирование директории файлов.
 
     Отправляет команду основному сервису на немедленное сканирование

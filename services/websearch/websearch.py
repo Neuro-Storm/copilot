@@ -1,13 +1,26 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.exceptions import HTTPException
 import sys
 import os
+from pathlib import Path
 # Добавляем путь к generator
 generator_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'generator')
 sys.path.insert(0, generator_path)
+
+# Загрузка секретного ключа для авторизации
+from dotenv import load_dotenv
+project_root = Path(__file__).parent.parent.parent
+load_dotenv(project_root / '.env')
+load_dotenv()
+
+# Добавляем common в путь для импорта middleware
+sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+from auth_middleware_fastapi import get_current_user, get_current_user_optional
+
+AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
 
 import grpc
 import time
@@ -214,12 +227,24 @@ async def read_root(request: Request):
     Returns:
         HTMLResponse: Основная страница поиска
     """
-    logger.info(f"Запрос главной страницы от {request.client.host}")
-    return templates.TemplateResponse("index.html", {"request": request})
+    # Проверяем авторизацию пользователя
+    user = await get_current_user_optional(request, AUTH_SECRET_KEY)
+    if not user:
+        # Если пользователь не авторизован, перенаправляем на страницу входа
+        return RedirectResponse(url="/login")
+    
+    logger.info(f"Запрос главной страницы от {request.client.host}, user={user['username']}")
+    return templates.TemplateResponse("index.html", {"request": request, "user": user})
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Страница входа."""
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @app.post("/api/search")
-async def search(query_data: SearchIn):
+async def search(query_data: SearchIn, request: Request):
     """Обрабатывает поисковый запрос через gRPC.
 
     Выполняет поиск с использованием searcher сервиса и, при необходимости,
@@ -229,6 +254,7 @@ async def search(query_data: SearchIn):
         query_data (SearchIn): Данные запроса с поисковым запросом и флагом генерации
             - query: текст поискового запроса
             - enable_generation: флаг включения генерации ответа (требует включенной генерации в конфигурации)
+        request: FastAPI запрос для получения информации о пользователе
 
     Returns:
         dict: Результаты поиска с метаданными и, при необходимости, сгенерированный ответ
@@ -244,9 +270,14 @@ async def search(query_data: SearchIn):
     Raises:
         HTTPException: При ошибках валидации или во время поиска
     """
+    # Получаем текущего пользователя для логирования
+    user = await get_current_user(request, AUTH_SECRET_KEY)
+    
     query = query_data.query.strip()  # Текст поискового запроса
     enable_generation = query_data.enable_generation and config.ENABLE_GENERATION  # Флаг включения генерации
-    logger.info(f"Получен поисковый запрос: {query[:50]}{'...' if len(query) > 50 else ''}, генерация: {enable_generation}")
+    
+    # Логирование с указанием пользователя
+    logger.info(f"[{user['username']}] role={user['role']} query=\"{query[:100]}{'...' if len(query) > 100 else ''}\" generation={enable_generation} ip={request.client.host}")
 
     # Проверяем длину запроса
     if not query:

@@ -7,7 +7,7 @@ import psutil
 import re
 import sys
 import urllib.parse
-from flask import Flask, render_template, request, jsonify, redirect, url_for, Response
+from flask import Flask, render_template, request, jsonify, redirect, url_for, Response, g
 from dotenv import load_dotenv, dotenv_values
 import html
 from pathlib import Path
@@ -17,6 +17,17 @@ import hmac
 
 # Import for CORS
 from flask_cors import CORS
+
+# Загрузка секретного ключа для авторизации
+project_root = Path(__file__).parent.parent.parent
+load_dotenv(project_root / '.env')
+load_dotenv()
+
+# Добавляем common в путь для импорта middleware
+sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+from tokens import verify_token
+
+AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
 
 load_dotenv()
 
@@ -29,9 +40,6 @@ CONFIG_FILE_NAME = "config.json"
 
 SERVICE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
-AUTH_REQUIRED = os.getenv("WEB_CONFIG_REQUIRE_AUTH", "1").lower() not in ("0", "false", "no")
-AUTH_USERNAME = os.getenv("WEB_CONFIG_USERNAME", "")
-AUTH_PASSWORD = os.getenv("WEB_CONFIG_PASSWORD", "")
 DEBUG_MODE = os.getenv("WEB_CONFIG_DEBUG", "0").lower() in ("1", "true", "yes")
 ALLOWED_ORIGINS = os.getenv("WEB_CONFIG_CORS_ORIGINS", "")
 
@@ -487,31 +495,42 @@ class PathValidator:
         return service_dir
 
 
-def _auth_required_response():
-    """Возвращает ответ, требующий аутентификации."""
-    return Response("Требуется аутентификация", 401, {"WWW-Authenticate": 'Basic realm="WebConfig"'})
-
-
-def _is_auth_valid():
-    """Проверяет действительность аутентификации пользователя."""
-    if not AUTH_REQUIRED:
-        return True
-    auth = request.authorization
-    if not auth:
-        return False
-    # Используем hmac.compare_digest для предотвращения атак по времени
-    username_valid = hmac.compare_digest(auth.username, AUTH_USERNAME)
-    password_valid = hmac.compare_digest(auth.password, AUTH_PASSWORD)
-
-    return username_valid and password_valid
-
-
 @app.before_request
 def enforce_auth():
-    if AUTH_REQUIRED and (not AUTH_USERNAME or not AUTH_PASSWORD):
-        return Response("Auth is required. Set WEB_CONFIG_USERNAME and WEB_CONFIG_PASSWORD.", 500)
-    if not _is_auth_valid():
-        return _auth_required_response()
+    """Middleware для проверки авторизации перед обработкой каждого запроса."""
+    # Пропускаем health check
+    if request.path == '/health':
+        return None
+    # Пропускаем страницу логина
+    if request.path == '/login':
+        return None
+    # Пропускаем статику
+    if request.path.startswith('/static/'):
+        return None
+
+    token = request.cookies.get('access_token')
+    if not token:
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+
+    if not token:
+        if 'text/html' in request.headers.get('Accept', ''):
+            return redirect('/login')
+        return jsonify({'error': 'Требуется авторизация'}), 401
+
+    try:
+        payload = verify_token(token, AUTH_SECRET_KEY)
+    except ValueError as e:
+        if 'text/html' in request.headers.get('Accept', ''):
+            return redirect('/login')
+        return jsonify({'error': str(e)}), 401
+
+    if payload.get('role') != 'admin':
+        return jsonify({'error': 'Только для администраторов'}), 403
+
+    # Сохраняем пользователя в контексте запроса Flask
+    g.current_user = payload
 
 
 def load_service_env(service_dir, base_env):
@@ -1237,6 +1256,12 @@ def index():
     """
     configs = get_all_configs()
     return render_template('index.html', configs=configs)
+
+
+@app.route('/login')
+def login():
+    """Страница входа."""
+    return render_template('login.html')
 
 
 @app.route('/service/<service_name>')
