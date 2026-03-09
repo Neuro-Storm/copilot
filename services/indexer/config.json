@@ -1,0 +1,37 @@
+{
+  "chunker_service": {
+    "host": "localhost",
+    "port": 50052
+  },
+  "embedder_service": {
+    "host": "localhost",
+    "port": 50051
+  },
+  "qdrant": {
+    "host": "localhost",
+    "port": 6333,
+    "collection_name": "documents1024",
+    "vector_size": 1024
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "indexer.log"
+  },
+  "server": {
+    "host": "localhost",
+    "port": 50054,
+    "max_workers": 1
+  },
+  "embedding_batch_size": 32,
+  "chunk_size": 512,
+  "chunk_overlap": 128,
+  "security": {
+    "max_content_size": 10485760,
+    "max_filename_length": 255,
+    "max_metadata_count": 50
+  },
+  "processing": {
+    "embedder_timeout": 30.0,
+    "max_chunks_per_doc": 1000
+  }
+}

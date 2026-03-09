@@ -1,0 +1,23 @@
+{
+  "server": {
+    "host": "[::]",
+    "port": 50056,
+    "max_workers": 4
+  },
+  "model": {
+    "path": "./models/Qwen_Qwen3-4B-Instruct-2507-Q5_K_L.gguf",
+    "n_ctx": 1024,
+    "n_threads": 4,
+    "n_gpu_layers": 0,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "repeat_penalty": 1.1,
+    "max_tokens": 512
+  },
+  "system_prompt": "Вы являетесь помощником в предоставлении ответов на вопросы на основе предоставленных документов. Отвечайте точно и кратко, опираясь только на информацию, содержащуюся в документах.",
+  "logging": {
+    "level": "INFO",
+    "file": "generator.log",
+    "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  }
+}

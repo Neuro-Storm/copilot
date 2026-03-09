@@ -1,0 +1,20 @@
+{
+  "server": {
+    "host": "[::]",
+    "port": 50052,
+    "max_workers": 4
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "chunker.log",
+    "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  },
+  "chunking": {
+    "chunk_size": 700,
+    "overlap_size": 70,
+    "max_file_size_mb": 150
+  },
+  "data": {
+    "base_dir": "."
+  }
+}

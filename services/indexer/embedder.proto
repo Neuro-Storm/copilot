@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package embedder;
+
+// The embedder service definition.
+service EmbedderService {
+  // Sends a text chunk and returns an embedding vector
+  rpc GetEmbedding(TextChunk) returns (EmbeddingVector);
+
+  // Sends multiple text chunks and returns multiple embedding vectors
+  rpc GetEmbeddings(TextChunks) returns (EmbeddingVectors);
+}
+
+// The request message containing the text chunk
+message TextChunk {
+  string text = 1;
+}
+
+// The request message containing multiple text chunks
+message TextChunks {
+  repeated string texts = 1;
+}
+
+// The response message containing the embedding vector
+message EmbeddingVector {
+  repeated float values = 1;
+}
+
+// The response message containing multiple embedding vectors
+message EmbeddingVectors {
+  repeated EmbeddingVector vectors = 1;
+}

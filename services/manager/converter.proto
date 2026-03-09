@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package converter;
+
+service DoclingConverter {
+  // Принимает пути к файлам или возвращает содержимое, в зависимости от параметров
+  rpc ConvertFile (ConvertRequest) returns (ConvertResponse) {}
+}
+
+message ConvertRequest {
+  string input_path = 1;    // Абсолютный путь к исходному файлу
+  string output_path = 2;   // Абсолютный путь для сохранения .md файла (если return_content=false)
+  bool return_content = 3;  // Возвращать содержимое в ответе (не сохранять в файл)
+}
+
+message ConvertResponse {
+  bool success = 1;         // true, если конвертация прошла успешно
+  string error_message = 2; // Описание ошибки, если success = false
+  string markdown_content = 3; // Содержимое markdown (если return_content=true)
+  string output_path = 4;   // Путь к сохраненному файлу (если return_content=false)
+}

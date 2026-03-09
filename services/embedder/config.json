@@ -1,0 +1,17 @@
+{
+  "server": {
+    "host": "[::]",
+    "port": 50051,
+    "max_workers": 4
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "embedder.log",
+    "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  },
+  "model": {
+    "path": "./models/models--ai-forever--ru-en-RoSBERTa",
+    "device": "cpu",
+    "max_length": 4000
+  }
+}

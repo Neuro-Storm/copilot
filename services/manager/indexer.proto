@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package indexer;
+
+// Сервис индексации
+service IndexerService {
+  // Индексирует документ через streaming
+  rpc IndexDocument(stream IndexFileRequest) returns (IndexResponse);
+}
+
+// Запрос на индексацию документа (порция данных)
+message IndexFileRequest {
+  oneof data {
+    FileHeader header = 1;  // Заголовок с метаданными (первый фрейм)
+    bytes chunk = 2;        // Часть содержимого файла (последующие фреймы)
+  }
+}
+
+// Заголовок файла с метаданными
+message FileHeader {
+  string filename = 1;                    // Имя файла
+  map<string, string> metadata = 2;       // Метаданные документа
+  int64 total_size = 3;                   // Общий размер файла (опционально)
+}
+
+// Ответ на запрос индексации
+message IndexResponse {
+  bool success = 1;
+  string message = 2;
+  int32 chunks_processed = 3;
+}

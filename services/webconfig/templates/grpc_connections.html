@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gRPC Connections - WebConfig</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .legend {
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .legend-item {
+            display: inline-block;
+            margin-right: 15px;
+        }
+        .legend-color {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            margin-right: 5px;
+            border-radius: 3px;
+        }
+        .legend-configured { background-color: #d1ecf1; }
+        .legend-potential { background-color: #fff3cd; }
+        .legend-http { background-color: #f8d7da; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .status-active {
+            color: green;
+            font-weight: bold;
+        }
+        .status-connecting {
+            color: orange;
+            font-weight: bold;
+        }
+        .status-transient_failure {
+            color: red;
+            font-weight: bold;
+        }
+        .status-shutdown {
+            color: gray;
+            font-weight: bold;
+        }
+        .status-unknown {
+            color: purple;
+            font-weight: bold;
+        }
+        .status-configured {
+            color: #0c5460;
+            font-weight: bold;
+            background-color: #d1ecf1;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .status-potential {
+            color: #856404;
+            font-weight: bold;
+            background-color: #fff3cd;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .status-potential_http {
+            color: #721c24;
+            font-weight: bold;
+            background-color: #f8d7da;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .action-btn {
+            padding: 5px 10px;
+            margin: 0 2px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            background: #f0f0f0;
+            border-radius: 3px;
+        }
+        .action-btn:hover {
+            background: #e0e0e0;
+        }
+        .refresh-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .refresh-btn:hover {
+            background: #0056b3;
+        }
+        .service-graph {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        .graph-node {
+            display: inline-block;
+            padding: 10px 15px;
+            margin: 10px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 20px;
+            text-align: center;
+            min-width: 100px;
+        }
+        .graph-connection {
+            display: inline-block;
+            margin: 0 10px;
+            vertical-align: middle;
+            color: #007bff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>gRPC Соединения между сервисами</h1>
+        <button class="refresh-btn" onclick="refreshConnections()">Обновить</button>
+
+        <div class="legend">
+            <div class="legend-item"><span class="legend-color legend-configured"></span> Настроенное соединение</div>
+            <div class="legend-item"><span class="legend-color legend-potential"></span> Потенциальное соединение</div>
+            <div class="legend-item"><span class="legend-color legend-http"></span> HTTP соединение</div>
+        </div>
+
+        <table id="connections-table">
+            <thead>
+                <tr>
+                    <th>Сервис</th>
+                    <th>Целевой сервис</th>
+                    <th>Статус</th>
+                    <th>Адрес</th>
+                    <th>Время подключения</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="connections-tbody">
+                {% if connections %}
+                    {% for conn_key, conn in connections.items() %}
+                    <tr>
+                        <td>{{ conn.service_name }}</td>
+                        <td>{{ conn.target_service }}</td>
+                        <td><span id="status-{{ conn.service_name }}-{{ conn.target_service }}" class="status-{{ conn.status }}">{{ conn.status }}</span></td>
+                        <td>{{ conn.target_address or '-' }}</td>
+                        <td id="time-{{ conn.service_name }}-{{ conn.target_service }}">
+                            {% if conn.connected_at %}
+                                {{ conn.connected_at | timestamp_to_datetime }}
+                            {% elif conn.detected_at %}
+                                {{ conn.detected_at | timestamp_to_datetime }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if conn.target_address %}
+                                <!-- Detected connection - show address -->
+                                {% if conn.status == 'potential' or conn.status == 'potential_http' or conn.status == 'configured' %}
+                                    <button class="action-btn" disabled>Нет действий</button>
+                                {% else %}
+                                    <!-- Active connection - show controls -->
+                                    <button class="action-btn" onclick="checkHealth('{{ conn.service_name }}', '{{ conn.target_service }}')">Проверить</button>
+                                    <button class="action-btn" onclick="closeConnection('{{ conn.service_name }}', '{{ conn.target_service }}')">Закрыть</button>
+                                {% endif %}
+                            {% else %}
+                                <!-- Active connection - show controls -->
+                                <button class="action-btn" onclick="checkHealth('{{ conn.service_name }}', '{{ conn.target_service }}')">Проверить</button>
+                                <button class="action-btn" onclick="closeConnection('{{ conn.service_name }}', '{{ conn.target_service }}')">Закрыть</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6">Нет активных gRPC соединений</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        <div class="service-graph">
+            <h3>Топология сервисов</h3>
+            <div id="graph-container">
+                <!-- Graph will be generated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Функция для преобразования timestamp в читаемую дату
+        function timestampToDate(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleString('ru-RU');
+        }
+
+        // Обновление таблицы соединений
+        function refreshConnections() {
+            fetch('/api/grpc_connections')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('connections-tbody');
+                    tbody.innerHTML = '';
+
+                    if (Object.keys(data.connections).length === 0) {
+                        const row = document.createElement('tr');
+                        row.innerHTML = '<td colspan="6">Нет активных gRPC соединений</td>';
+                        tbody.appendChild(row);
+                    } else {
+                        for (const [connKey, conn] of Object.entries(data.connections)) {
+                            const row = document.createElement('tr');
+
+                            const serviceCell = document.createElement('td');
+                            serviceCell.textContent = conn.service_name;
+
+                            const targetCell = document.createElement('td');
+                            targetCell.textContent = conn.target_service;
+
+                            const statusCell = document.createElement('td');
+                            const statusSpan = document.createElement('span');
+                            statusSpan.className = `status-${conn.status}`;
+                            statusSpan.id = `status-${conn.service_name}-${conn.target_service}`;
+                            statusSpan.textContent = conn.status;
+                            statusCell.appendChild(statusSpan);
+
+                            const addressCell = document.createElement('td');
+                            addressCell.textContent = conn.target_address || '-';
+
+                            const timeCell = document.createElement('td');
+                            // Use connected_at if available, otherwise use detected_at
+                            const timestamp = conn.connected_at || conn.detected_at || null;
+                            timeCell.textContent = timestamp ? timestampToDate(timestamp) : '-';
+                            timeCell.id = `time-${conn.service_name}-${conn.target_service}`;
+
+                            const actionsCell = document.createElement('td');
+
+                            if (conn.target_address) {
+                                // Detected connection - show appropriate action based on status
+                                if (conn.status === 'potential' || conn.status === 'potential_http' || conn.status === 'configured') {
+                                    actionsCell.innerHTML = '<button class="action-btn" disabled>Нет действий</button>';
+                                } else {
+                                    // Active connection - show controls
+                                    const checkBtn = document.createElement('button');
+                                    checkBtn.className = 'action-btn';
+                                    checkBtn.textContent = 'Проверить';
+                                    checkBtn.onclick = () => checkHealth(conn.service_name, conn.target_service);
+
+                                    const closeBtn = document.createElement('button');
+                                    closeBtn.className = 'action-btn';
+                                    closeBtn.textContent = 'Закрыть';
+                                    closeBtn.onclick = () => closeConnection(conn.service_name, conn.target_service);
+
+                                    actionsCell.appendChild(checkBtn);
+                                    actionsCell.appendChild(closeBtn);
+                                }
+                            } else {
+                                // Active connection - show controls
+                                const checkBtn = document.createElement('button');
+                                checkBtn.className = 'action-btn';
+                                checkBtn.textContent = 'Проверить';
+                                checkBtn.onclick = () => checkHealth(conn.service_name, conn.target_service);
+
+                                const closeBtn = document.createElement('button');
+                                closeBtn.className = 'action-btn';
+                                closeBtn.textContent = 'Закрыть';
+                                closeBtn.onclick = () => closeConnection(conn.service_name, conn.target_service);
+
+                                actionsCell.appendChild(checkBtn);
+                                actionsCell.appendChild(closeBtn);
+                            }
+
+                            row.appendChild(serviceCell);
+                            row.appendChild(targetCell);
+                            row.appendChild(statusCell);
+                            row.appendChild(addressCell);
+                            row.appendChild(timeCell);
+                            row.appendChild(actionsCell);
+
+                            tbody.appendChild(row);
+                        }
+                    }
+
+                    // Update the graph visualization
+                    updateGraph(data.connections);
+                })
+                .catch(error => {
+                    console.error('Ошибка при обновлении соединений:', error);
+                    alert('Ошибка при обновлении соединений');
+                });
+        }
+
+        // Функция для обновления графа топологии сервисов
+        function updateGraph(connections) {
+            const graphContainer = document.getElementById('graph-container');
+            graphContainer.innerHTML = '';
+
+            if (Object.keys(connections).length === 0) {
+                graphContainer.textContent = 'Нет соединений для отображения';
+                return;
+            }
+
+            // Собираем уникальные сервисы
+            const services = new Set();
+            for (const [_, conn] of Object.entries(connections)) {
+                services.add(conn.service_name);
+                services.add(conn.target_service);
+            }
+
+            // Создаем узлы для каждого сервиса
+            const nodes = {};
+            for (const service of services) {
+                const node = document.createElement('div');
+                node.className = 'graph-node';
+                node.textContent = service;
+                node.title = `Сервис: ${service}`;
+                nodes[service] = node;
+            }
+
+            // Создаем контейнер для графа
+            const graphDiv = document.createElement('div');
+
+            // Добавляем узлы
+            for (const service of services) {
+                graphDiv.appendChild(nodes[service]);
+
+                // Находим исходящие соединения для этого сервиса
+                const outgoingConnections = [];
+                for (const [_, conn] of Object.entries(connections)) {
+                    if (conn.service_name === service) {
+                        outgoingConnections.push(conn);
+                    }
+                }
+
+                // Добавляем стрелки для исходящих соединений
+                if (outgoingConnections.length > 0) {
+                    for (const conn of outgoingConnections) {
+                        const arrow = document.createElement('span');
+                        arrow.className = 'graph-connection';
+                        arrow.textContent = '→';
+                        arrow.title = `Соединение: ${conn.service_name} → ${conn.target_service} (${conn.status})`;
+
+                        const targetNode = document.createElement('div');
+                        targetNode.className = 'graph-node';
+                        targetNode.textContent = conn.target_service;
+                        targetNode.title = `Сервис: ${conn.target_service}`;
+
+                        graphDiv.appendChild(arrow);
+                        graphDiv.appendChild(targetNode);
+                    }
+                }
+            }
+
+            graphContainer.appendChild(graphDiv);
+        }
+
+        // Проверка здоровья соединения
+        function checkHealth(serviceName, targetService) {
+            fetch(`/api/grpc_connections/${serviceName}/${targetService}/health`)
+                .then(response => response.json())
+                .then(data => {
+                    const statusElement = document.getElementById(`status-${serviceName}-${targetService}`);
+                    if (statusElement) {
+                        statusElement.textContent = data.health;
+                        statusElement.className = `status-${data.health}`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при проверке здоровья соединения:', error);
+                });
+        }
+
+        // Закрытие соединения
+        function closeConnection(serviceName, targetService) {
+            if (confirm(`Вы уверены, что хотите закрыть соединение ${serviceName} -> ${targetService}?`)) {
+                fetch(`/api/grpc_connections/${serviceName}/${targetService}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.message);
+                        refreshConnections(); // Обновляем таблицу
+                    } else {
+                        alert('Ошибка: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при закрытии соединения:', error);
+                    alert('Ошибка при закрытии соединения');
+                });
+            }
+        }
+
+        // Загрузка данных при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshConnections();
+        });
+    </script>
+</body>
+</html>

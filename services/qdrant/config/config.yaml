@@ -1,0 +1,9 @@
+# Qdrant Configuration File
+# Disables telemetry by default
+
+# Disable telemetry reporting
+telemetry_disabled: true
+
+# Alternative way to disable telemetry (if the above doesn't work)
+# service:
+#   telemetry_disabled: true

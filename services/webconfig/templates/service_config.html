@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Конфигурация {{ service_name.title() }} - Система RAG</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .service-status {
+            font-size: 0.9em;
+            padding: 5px 10px;
+            border-radius: 12px;
+            font-weight: bold;
+        }
+        .status-running {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-stopped {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .breadcrumb {
+            margin-bottom: 20px;
+        }
+        .breadcrumb a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        .form-group {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+        .nested-form-group {
+            margin-left: 20px;
+            border-left: 3px solid #007bff;
+            padding-left: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], input[type="number"], select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .btn {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 5px;
+        }
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        .btn-save {
+            background-color: #28a745;
+        }
+        .btn-save:hover {
+            background-color: #218838;
+        }
+        .btn-cancel {
+            background-color: #6c757d;
+        }
+        .btn-cancel:hover {
+            background-color: #545b62;
+        }
+        .btn-service-control {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        .btn-service-control:hover {
+            background-color: #e0a800;
+        }
+        .btn-service-start {
+            background-color: #28a745;
+        }
+        .btn-service-start:hover {
+            background-color: #218838;
+        }
+        .btn-service-stop {
+            background-color: #dc3545;
+        }
+        .btn-service-stop:hover {
+            background-color: #c82333;
+        }
+        .alert {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .config-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            background-color: #fafafa;
+        }
+        .section-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .field-description {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 3px;
+        }
+        .service-controls {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+        .control-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="breadcrumb">
+            <a href="{{ url_for('index') }}">← Назад к списку сервисов</a>
+        </div>
+
+        <h1>
+            <span>Конфигурация {{ service_name.title() }}</span>
+            <span class="service-status status-stopped" id="service-status">Загрузка...</span>
+        </h1>
+
+        <div id="message"></div>
+
+        <div class="service-controls">
+            <h3>Управление сервисом</h3>
+            <p>Управление жизненным циклом сервиса {{ service_name }}</p>
+            <div class="control-buttons">
+                <button type="button" class="btn btn-service-start" onclick="startService()">Запустить сервис</button>
+                <button type="button" class="btn btn-service-stop" onclick="stopService()">Остановить сервис</button>
+                <button type="button" class="btn btn-service-control" onclick="restartService()">Перезапустить сервис</button>
+                <button type="button" class="btn btn-service-control" onclick="loadServiceStatus()">Обновить статус</button>
+                <a href="{{ url_for('view_service_logs', service_name=service_name) }}" class="btn btn-service-control">Просмотр логов</a>
+            </div>
+        </div>
+
+        <form id="configForm" method="post" action="{{ url_for('update_service_config', service_name=service_name) }}">
+            {% for key, value in config.items() %}
+                {{ render_config_field_template(key, value, key, 0)|safe }}
+            {% endfor %}
+
+            <div style="margin-top: 20px;">
+                <button type="submit" class="btn btn-save">Сохранить конфигурацию</button>
+                <a href="{{ url_for('index') }}" class="btn btn-cancel">Отмена</a>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // Функция для рекурсивного отображения полей конфигурации
+        function renderConfigField(key, value, fullKey, depth) {
+            let html = '';
+            const indent = depth * 20; // Отступ для вложенных полей
+
+            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                // Отображение раздела для вложенных объектов
+                html += `<div class="config-section" style="margin-left: ${indent}px;">`;
+                html += `<div class="section-title">${key.replace('_', ' ').toUpperCase()}</div>`;
+
+                for (let subKey in value) {
+                    html += renderConfigField(subKey, value[subKey], fullKey + '.' + subKey, depth + 1);
+                }
+
+                html += `</div>`;
+            } else {
+                // Отображение группы формы для примитивных значений
+                html += `<div class="form-group" style="margin-left: ${indent}px;">`;
+                html += `<label for="${fullKey}">${key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}:</label>`;
+
+                if (typeof value === 'boolean') {
+                    html += `<select name="${fullKey}" id="${fullKey}">`;
+                    html += `<option value="true" ${value ? 'selected' : ''}>True</option>`;
+                    html += `<option value="false" ${!value ? 'selected' : ''}>False</option>`;
+                    html += `</select>`;
+                } else if (typeof value === 'number') {
+                    if (Number.isInteger(value)) {
+                        html += `<input type="number" name="${fullKey}" id="${fullKey}" value="${value}" />`;
+                    } else {
+                        html += `<input type="number" step="any" name="${fullKey}" id="${fullKey}" value="${value}" />`;
+                    }
+                } else {
+                    html += `<input type="text" name="${fullKey}" id="${fullKey}" value="${String(value).replace(/"/g, '&quot;')}" />`;
+                }
+
+                html += `<div class="field-description">Текущее значение: ${String(value)}</div>`;
+                html += `</div>`;
+            }
+
+            return html;
+        }
+
+        // Добавление обработчика события отправки формы
+        document.addEventListener('DOMContentLoaded', function() {
+            loadServiceStatus();
+
+            const form = document.getElementById('configForm');
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(form);
+                fetch(form.action, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: formData,
+                    cache: 'no-cache'
+                })
+                    .then(response => {
+                        return response.json().then(data => ({ ok: response.ok, data }));
+                    })
+                    .then(({ ok, data }) => {
+                        if (ok && data.success) {
+                            showMessage(data.message, 'success');
+                        } else {
+                            showMessage('Ошибка: ' + (data.error || 'Unknown error'), 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Ошибка сохранения конфигурации:', error);
+                        showMessage('Ошибка сохранения конфигурации: ' + error.message, 'error');
+                    });
+            });
+        });
+
+        function loadServiceStatus() {
+            fetch(`/status/{{ service_name }}`, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                cache: 'no-cache'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const statusElement = document.getElementById('service-status');
+                    if (data.status === 'running') {
+                        statusElement.className = 'service-status status-running';
+                        statusElement.textContent = 'Запущен (PID: ' + data.pid + ')';
+                    } else {
+                        statusElement.className = 'service-status status-stopped';
+                        statusElement.textContent = 'Остановлен';
+                    }
+                })
+                .catch(error => {
+                    const statusElement = document.getElementById('service-status');
+                    statusElement.className = 'service-status status-stopped';
+                    statusElement.textContent = 'Ошибка';
+                    console.error('Ошибка загрузки статуса сервиса:', error);
+                });
+        }
+
+        function startService() {
+            fetch(`/start/{{ service_name }}`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                cache: 'no-cache'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        // Обновление статуса после короткой задержки
+                        setTimeout(loadServiceStatus, 1000);
+                    } else {
+                        showMessage('Ошибка: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка запуска сервиса:', error);
+                    showMessage('Ошибка запуска сервиса: ' + error.message, 'error');
+                });
+        }
+
+        function stopService() {
+            fetch(`/stop/{{ service_name }}`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                cache: 'no-cache'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        // Обновление статуса после короткой задержки
+                        setTimeout(loadServiceStatus, 1000);
+                    } else {
+                        showMessage('Ошибка: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка остановки сервиса:', error);
+                    showMessage('Ошибка остановки сервиса: ' + error.message, 'error');
+                });
+        }
+
+        function restartService() {
+            fetch(`/restart/{{ service_name }}`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                cache: 'no-cache'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        showMessage(data.message, 'success');
+                        // Обновление статуса после короткой задержки
+                        setTimeout(loadServiceStatus, 1000);
+                    } else {
+                        showMessage('Ошибка: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка перезапуска сервиса:', error);
+                    showMessage('Ошибка перезапуска сервиса: ' + error.message, 'error');
+                });
+        }
+
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+            messageDiv.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+
+            // Автоматическое скрытие сообщения через 5 секунд
+            setTimeout(() => {
+                messageDiv.innerHTML = '';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package searcher;
+
+// Сообщение для поискового запроса
+message SearchRequest {
+  string query = 1;  // Текст запроса для поиска
+}
+
+// Сообщение для результата поиска
+message SearchResult {
+  string text = 1;       // Текст найденного фрагмента
+  float score = 2;       // Релевантность результата
+  string source_id = 3;  // ID источника документа
+  map<string, string> metadata = 4;  // Метаданные документа
+}
+
+// Ответ на поисковый запрос
+message SearchResponse {
+  repeated SearchResult results = 1;  // Список результатов поиска
+  double search_time = 2;             // Время поиска в секундах
+}
+
+// Сервис поиска
+service SearcherService {
+  // Метод для выполнения семантического поиска
+  rpc Search(SearchRequest) returns (SearchResponse);
+}

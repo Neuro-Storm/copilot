@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>КОПИЛОТ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container search-container">
+        <h1 class="text-center mb-4">КОПИЛОТ</h1>
+        <form id="search-form">
+            <div class="input-group mb-3">
+                <input type="text" id="query" class="form-control form-control-lg search-box" placeholder="Введите ваш запрос..." required autocomplete="off">
+                <button class="btn btn-primary btn-lg" type="submit">Поиск</button>
+            </div>
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="enable-generation">
+                <label class="form-check-label" for="enable-generation">
+                    Ответ ассистента
+                </label>
+            </div>
+        </form>
+
+        <div id="loading" class="loading">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p>Поиск...</p>
+        </div>
+
+        <div id="assistant-answer" class="assistant-answer" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <h4>Ответ ассистента</h4>
+                </div>
+                <div class="card-body">
+                    <div id="answer-content"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="results" aria-live="polite"></div>
+    </div>
+
+    <script>
+        function escapeHtml(text) {
+            if (typeof text !== 'string') {
+                text = String(text);
+            }
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Инициализация: скрываем индикатор загрузки при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('loading').style.display = 'none';
+        });
+
+        document.getElementById('search-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const query = document.getElementById('query').value.trim();
+            const enableGeneration = document.getElementById('enable-generation').checked;
+            if (!query) {
+                alert('Пожалуйста, введите запрос');
+                return;
+            }
+
+            // Показываем индикатор загрузки
+            document.getElementById('loading').style.display = 'block';
+            // Очищаем предыдущие результаты
+            document.getElementById('results').innerHTML = '';
+            // Скрываем предыдущий ответ ассистента
+            document.getElementById('assistant-answer').style.display = 'none';
+
+            try {
+                const response = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        enable_generation: enableGeneration
+                    })
+                });
+
+                if (!response.ok) {
+                    // Скрываем индикатор загрузки
+                    document.getElementById('loading').style.display = 'none';
+                    const errorData = await response.json();
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'alert alert-danger';
+                    errorDiv.textContent = 'Ошибка: ' + escapeHtml(errorData.detail || 'Неизвестная ошибка');
+                    document.getElementById('results').appendChild(errorDiv);
+                    return;
+                }
+
+                const data = await response.json();
+
+                // Скрываем индикатор загрузки после получения успешного ответа
+                document.getElementById('loading').style.display = 'none';
+
+                // Проверяем, есть ли сгенерированный ответ
+                if (data.generation && data.generation.answer) {
+                    // Отображаем сгенерированный ответ
+                    document.getElementById('answer-content').innerHTML = escapeHtml(data.generation.answer);
+                    document.getElementById('assistant-answer').style.display = 'block';
+                } else {
+                    // Скрываем блок сгенерированного ответа, если его нет
+                    document.getElementById('assistant-answer').style.display = 'none';
+                }
+
+                if (!data.results || data.results.length === 0) {
+                    const noResultsDiv = document.createElement('div');
+                    noResultsDiv.className = 'alert alert-info';
+                    noResultsDiv.textContent = 'Ничего не найдено по вашему запросу.';
+                    document.getElementById('results').appendChild(noResultsDiv);
+                    return;
+                }
+
+                const resultsContainer = document.createElement('div');
+
+                const heading = document.createElement('h3');
+                heading.textContent = 'Результаты поиска:';
+                resultsContainer.appendChild(heading);
+
+                data.results.forEach(function(result, index) {
+                    // Извлекаем content из metadata, если он там есть, иначе используем result.text
+                    let displayText = result.text || '';
+
+                    // Проверяем, есть ли content в metadata
+                    if (result.metadata && result.metadata.content) {
+                        displayText = result.metadata.content;
+                    }
+
+                    // Используем source из metadata как источник
+                    let sourceName = 'Неизвестно';
+                    if (result.metadata && result.metadata.source) {
+                        sourceName = result.metadata.source;
+                    } else if (result.metadata && result.metadata.file_name) {
+                        sourceName = result.metadata.file_name;
+                    } else {
+                        sourceName = result.source_id || 'Неизвестно';
+                    }
+
+                    // Создаем элемент для результата
+                    const resultItem = document.createElement('div');
+                    resultItem.className = 'result-item';
+
+                    // Оценка
+                    const scoreDiv = document.createElement('div');
+                    scoreDiv.className = 'result-score';
+                    scoreDiv.textContent = `Оценка: ${result.score.toFixed(3)}`;
+
+                    // Создаем контейнер для текста и метаданных
+                    const contentDiv = document.createElement('div');
+
+                    // Текст результата
+                    const textDiv = document.createElement('div');
+                    textDiv.className = 'result-text';
+                    textDiv.textContent = displayText; // Текст автоматически экранируется при использовании textContent
+
+                    // Метаданные источника
+                    const metadataDiv = document.createElement('div');
+                    metadataDiv.className = 'result-metadata';
+                    metadataDiv.textContent = `Источник: ${escapeHtml(sourceName)}`;
+
+                    // Добавляем текст и метаданные в контейнер
+                    contentDiv.appendChild(textDiv);
+                    contentDiv.appendChild(metadataDiv);
+
+                    // Добавляем оценку и контейнер с содержимым в основной элемент
+                    resultItem.appendChild(scoreDiv);
+                    resultItem.appendChild(contentDiv);
+
+                    // Проверяем, есть ли другие метаданные, кроме source, file_name и content
+                    const additionalMetadata = Object.entries(result.metadata).filter(([key, value]) =>
+                        key !== 'source' && key !== 'file_name' && key !== 'content'
+                    );
+
+                    if (additionalMetadata.length > 0) {
+                        const metadataSection = document.createElement('div');
+                        metadataSection.className = 'metadata-section mt-2';
+
+                        // Генерируем безопасный ID для collapse
+                        const metadataId = `metadata-${index}`;
+
+                        // Кнопка для переключения дополнительной информации
+                        const toggleButton = document.createElement('button');
+                        toggleButton.className = 'btn btn-sm btn-outline-info metadata-toggle';
+                        toggleButton.type = 'button';
+                        toggleButton.setAttribute('data-bs-toggle', 'collapse');
+                        toggleButton.setAttribute('data-bs-target', `#${metadataId}`);
+                        toggleButton.setAttribute('aria-expanded', 'false');
+                        toggleButton.textContent = 'Дополнительная информация';
+
+                        // Контейнер для дополнительных метаданных
+                        const collapseDiv = document.createElement('div');
+                        collapseDiv.className = 'collapse';
+                        collapseDiv.id = metadataId;
+
+                        const detailsDiv = document.createElement('div');
+                        detailsDiv.className = 'result-metadata-details mt-2';
+
+                        additionalMetadata.forEach(([key, value]) => {
+                            // Проверяем, является ли значение JSON строкой
+                            let displayValue = String(value); // Приводим к строке для безопасности
+                            try {
+                                const parsed = JSON.parse(value);
+                                if (typeof parsed === 'object') {
+                                    displayValue = JSON.stringify(parsed, null, 2);
+                                }
+                            } catch (e) {
+                                // Если не JSON, используем как есть
+                            }
+
+                            // Обрезаем длинные значения
+                            if (typeof displayValue === 'string' && displayValue.length > 500) {
+                                displayValue = displayValue.substring(0, 500) + '...';
+                            }
+
+                            const itemDiv = document.createElement('div');
+                            itemDiv.className = 'metadata-item';
+
+                            const strong = document.createElement('strong');
+                            strong.textContent = escapeHtml(key) + ':';
+
+                            const span = document.createElement('span');
+                            span.className = 'metadata-value';
+                            span.textContent = escapeHtml(displayValue); // Экранируем для безопасности
+
+                            itemDiv.appendChild(strong);
+                            itemDiv.appendChild(span);
+                            detailsDiv.appendChild(itemDiv);
+                        });
+
+                        collapseDiv.appendChild(detailsDiv);
+                        metadataSection.appendChild(toggleButton);
+                        metadataSection.appendChild(collapseDiv);
+
+                        resultItem.appendChild(metadataSection);
+                    }
+
+                    resultsContainer.appendChild(resultItem);
+                });
+
+                if (data.search_time !== undefined) {
+                    const timeDiv = document.createElement('div');
+                    timeDiv.className = 'search-time';
+                    timeDiv.textContent = `Время поиска: ${data.search_time.toFixed(3)} сек`;
+                    resultsContainer.appendChild(timeDiv);
+                }
+
+                document.getElementById('results').appendChild(resultsContainer);
+            } catch (error) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'alert alert-danger';
+                errorDiv.textContent = 'Ошибка соединения: ' + escapeHtml(error.message);
+                document.getElementById('results').appendChild(errorDiv);
+            } finally {
+                // Всегда скрываем индикатор загрузки в конце
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+    </script>
+
+    <div class="footer">
+        <p>КОПИЛОТ &copy; 2025</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package generator;
+
+// Запрос для генерации ответа на основе поисковой выдачи
+message GenerationRequest {
+  string query = 1;  // Поисковый запрос/вопрос пользователя
+  repeated SearchResult search_results = 2;  // Результаты поиска
+  string system_prompt = 3;  // Системный промпт (опционально, может быть в конфиге)
+}
+
+// Результат поиска (копия из searcher.proto для самодостаточности)
+message SearchResult {
+  string text = 1;       // Текст найденного фрагмента
+  float score = 2;       // Релевантность результата
+  string source_id = 3;  // ID источника документа
+  map<string, string> metadata = 4;  // Метаданные документа
+}
+
+// Ответ сгенерированного текста
+message GenerationResponse {
+  string answer = 1;      // Сгенерированный ответ
+  repeated string sources = 2;  // Источники, использованные для генерации
+  double generation_time = 3;   // Время генерации в секундах
+}
+
+// Сервис генерации ответов
+service GeneratorService {
+  // Метод для генерации ответа на основе поисковой выдачи
+  rpc Generate(GenerationRequest) returns (GenerationResponse);
+}
