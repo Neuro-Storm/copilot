@@ -203,3 +203,69 @@ services/*/*/config.json.backup
 .cache/
 __pycache__/
 *.pyc
+
+# ===========================================
+# Qdrant Vector DB - исключение всех данных
+# ===========================================
+services/qdrant/storage/
+services/qdrant/.qdrant-initialized
+
+# ===========================================
+# SQLite и другие БД (кроме явных .db файлов)
+# ===========================================
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+
+# ===========================================
+# Сгенерированные proto файлы (опционально)
+# ===========================================
+# *_pb2.py
+# *_pb2_grpc.py
+
+# ===========================================
+# ML модели и кэши
+# ===========================================
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+models/
+services/*/models/
+.huggingface/
+.cache/huggingface/
+
+# ===========================================
+# Документы и загруженные файлы
+# ===========================================
+files/
+services/manager/files/
+services/*/workspace/
+services/*/*/workspace/
+
+# ===========================================
+# IDE и редакторы
+# ===========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# ===========================================
+# OS
+# ===========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
