@@ -6,7 +6,7 @@
 - Управление очередью обработки файлов
 - Интеграция с сервисами конвертации и индексации
 - Предоставление HTTP API для мониторинга и управления
-- Обеспечение безопасности через валидацию путей и аутентификацию
+- Обеспечение безопасности через валидацию путей и токенную авторизацию
 
 Поддерживаемые форматы файлов: PDF, DOCX, PPTX, TXT, HTML, HTM, MD
 """
@@ -26,9 +26,18 @@ from queue import Queue, Empty
 
 # Добавляем Flask для HTTP API
 from flask import Flask, jsonify, request, Response
-import hmac
-import os
-from functools import wraps
+
+# Загрузка секретного ключа для авторизации
+from dotenv import load_dotenv
+load_dotenv()
+project_root = Path(__file__).parent.parent.parent
+load_dotenv(project_root / '.env')
+
+# Добавляем common в путь для импорта middleware
+sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+from auth_middleware import require_role
+
+AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
 
 # Настройка логирования
 logging.basicConfig(
@@ -1425,89 +1434,35 @@ def api_manual_scan():
         logger.error(f"Ошибка при ручном сканировании: {e}")
         return jsonify({'error': str(e)}), 500
 
-# Настройка аутентификации
-# Используется для защиты чувствительных API-эндпоинтов от несанкционированного доступа
-AUTH_REQUIRED = os.getenv("MANAGER_REQUIRE_AUTH", "false").lower() in ("1", "true", "yes")
-AUTH_USERNAME = os.getenv("MANAGER_USERNAME", "admin")
-AUTH_PASSWORD = os.getenv("MANAGER_PASSWORD", "admin")
-
-
-def _auth_required_response():
-    """
-    Возвращает ответ, требующий аутентификации.
-
-    Returns:
-        Response: HTTP-ответ с требованием аутентификации
-    """
-    return Response("Требуется аутентификация", 401, {"WWW-Authenticate": 'Basic realm="Manager"'})
-
-
-def _is_auth_valid():
-    """
-    Проверяет действительность аутентификации пользователя.
-
-    Использует hmac.compare_digest для предотвращения атак по времени.
-
-    Returns:
-        bool: True, если аутентификация действительна, иначе False
-    """
-    if not AUTH_REQUIRED:
-        return True
-    auth = request.authorization
-    if not auth:
-        return False
-    # Используем hmac.compare_digest для предотвращения атак по времени
-    # Это предотвращает возможность определения правильного пароля по времени ответа
-    username_valid = hmac.compare_digest(auth.username, AUTH_USERNAME)
-    password_valid = hmac.compare_digest(auth.password, AUTH_PASSWORD)
-
-    return username_valid and password_valid
-
-
-def require_auth(f):
-    """
-    Декоратор для защиты эндпоинтов аутентификацией.
-
-    Применяется к маршрутам Flask для обеспечения аутентификации Basic Auth.
-
-    Args:
-        f: функция-обработчик маршрута
-
-    Returns:
-        функцию-обертку с проверкой аутентификации
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not _is_auth_valid():
-            return _auth_required_response()
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-# Применяем аутентификацию к чувствительным эндпоинтам, переопределяя маршруты
+# Применяем аутентификацию к чувствительным эндпоинтам, используя токенную авторизацию
 @app.route('/api/control/start', methods=['POST'])
-@require_auth
-def protected_api_start_manager():
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def protected_api_start_manager(current_user=None):
+    logger.info(f"[{current_user['username']}] Запуск обработки")
     return api_start_manager()
 
 @app.route('/api/control/stop', methods=['POST'])
-@require_auth
-def protected_api_stop_manager():
+@require_role('admin', secret_key=AUTH_SECRET_KEY)
+def protected_api_stop_manager(current_user=None):
+    logger.info(f"[{current_user['username']}] Остановка обработки")
     return api_stop_manager()
 
 @app.route('/api/file/<int:file_id>/retry', methods=['POST'])
-@require_auth
-def protected_api_retry_file_processing(file_id):
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def protected_api_retry_file_processing(file_id, current_user=None):
+    logger.info(f"[{current_user['username']}] Повторная обработка файла {file_id}")
     return api_retry_file_processing(file_id)
 
 @app.route('/api/file/<int:file_id>', methods=['DELETE'])
-@require_auth
-def protected_api_delete_file(file_id):
+@require_role('admin', secret_key=AUTH_SECRET_KEY)
+def protected_api_delete_file(file_id, current_user=None):
+    logger.info(f"[{current_user['username']}] Удаление файла {file_id}")
     return api_delete_file(file_id)
 
 @app.route('/api/manual_scan', methods=['POST'])
-@require_auth
-def protected_api_manual_scan():
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def protected_api_manual_scan(current_user=None):
+    logger.info(f"[{current_user['username']}] Ручное сканирование")
     return api_manual_scan()
 
 # Для остальных эндпоинтов можно добавить опциональную аутентификацию или оставить без нее

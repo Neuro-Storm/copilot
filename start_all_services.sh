@@ -18,13 +18,13 @@ fi
 declare -A SERVICES_PORTS
 SERVICES_PORTS["auth"]="5050"
 SERVICES_PORTS["chunker"]="50052"
-SERVICES_PORTS["converter"]="50053"  # или 50051 в зависимости от конфигурации
+SERVICES_PORTS["converter"]="50053"
 SERVICES_PORTS["embedder"]="50051"
 SERVICES_PORTS["indexer"]="50054"
 SERVICES_PORTS["manager"]="5001"
 SERVICES_PORTS["searcher"]="50055"
 SERVICES_PORTS["websearch"]="8001"
-SERVICES_PORTS["webconfig"]="50055"
+SERVICES_PORTS["webconfig"]="50057"
 SERVICES_PORTS["web_ui"]="8000"
 SERVICES_PORTS["generator"]="50056"
 

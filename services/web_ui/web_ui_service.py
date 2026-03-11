@@ -32,7 +32,6 @@ from pathlib import Path
 import requests
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 from flask_cors import CORS
-from werkzeug.security import check_password_hash, generate_password_hash
 import logging
 from functools import wraps
 import hashlib

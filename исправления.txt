@@ -1,0 +1,25 @@
+Осталась одна проблема: Manager
+services/manager/manager.py по-прежнему использует старый Basic Auth и не интегрирован с auth-сервисом:
+python# Всё ещё в коде:
+AUTH_REQUIRED = os.getenv("MANAGER_REQUIRE_AUTH", "false")...
+AUTH_USERNAME = os.getenv("MANAGER_USERNAME", "admin")
+AUTH_PASSWORD = os.getenv("MANAGER_PASSWORD", "admin")
+
+def _auth_required_response(): ...      # Basic Auth
+def _is_auth_valid(): ...               # Basic Auth
+def require_auth(f): ...                # Локальный декоратор Basic Auth
+
+@require_auth                           # Старый декоратор
+def protected_api_start_manager(): ...
+Сейчас это работает только потому, что AUTH_REQUIRED по умолчанию false — то есть API Manager полностью открыт без авторизации. Кто угодно в локальной сети может вызвать /api/control/start, /api/file/{id} DELETE и т.д. напрямую, минуя web_ui.
+По спецификации нужно заменить Basic Auth на токенную авторизацию, аналогично тому как это сделано в web_ui — импортировать require_role из common/auth_middleware.py и защитить эндпоинты.
+
+Мелочь: неиспользуемый импорт в web_ui
+В web_ui_service.py всё ещё есть:
+pythonfrom werkzeug.security import check_password_hash, generate_password_hash
+Эти функции больше не используются после перехода на токены. Некритично, но стоит убрать для чистоты.
+
+Старый баг (не связан с auth): конфликт портов в start_all_services.sh
+Это было из предыдущей проверки и осталось:
+bashSERVICES_PORTS["searcher"]="50055"
+SERVICES_PORTS["webconfig"]="50055"    # ← конфликт

@@ -267,14 +267,16 @@ python converter.py
 
 | Сервис | Порт |
 |--------|------|
+| Auth | 5050 |
 | Converter | 50053 |
 | Chunker | 50052 |
 | Embedder | 50051 |
 | Indexer | 50054 |
 | Searcher | 50055 |
-| Web UI | 5000 |
-| WebConfig | 50055 |
+| Web UI | 8000 |
+| WebConfig | 50057 |
 | WebSearch | 8001 |
+| Manager | 5001 |
 | Qdrant | 6333 |
 
 ## Конфигурация
