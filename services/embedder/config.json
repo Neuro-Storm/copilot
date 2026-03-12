@@ -12,6 +12,6 @@
   "model": {
     "path": "./models/models--ai-forever--ru-en-RoSBERTa",
     "device": "cpu",
-    "max_length": 4000
+    "max_length": 512
   }
 }

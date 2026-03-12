@@ -14,7 +14,7 @@ import chunker_pb2_grpc
 CONFIG_PATH = Path("config.json")
 DEFAULTS = {
     "server": {"host": "[::]", "port": 50052, "max_workers": 4},
-    "chunking": {"chunk_size": 500, "overlap_size": 50, "max_file_size_mb": 50},
+    "chunking": {"chunk_size": 1000, "overlap_size": 100, "max_file_size_mb": 50},
     "data": {"base_dir": "."},
     "logging": {"level": "INFO", "file": "chunker.log", "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"}
 }

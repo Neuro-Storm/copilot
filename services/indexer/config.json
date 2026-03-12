@@ -23,8 +23,8 @@
     "max_workers": 1
   },
   "embedding_batch_size": 32,
-  "chunk_size": 512,
-  "chunk_overlap": 128,
+  "chunk_size": 1000,
+  "chunk_overlap": 100,
   "security": {
     "max_content_size": 10485760,
     "max_filename_length": 255,
