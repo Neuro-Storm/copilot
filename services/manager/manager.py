@@ -827,8 +827,7 @@ class Manager:
         logger.info("-> Конвертация: %s", file_path)
         req = converter_pb2.ConvertRequest(
             input_path=str(file_path),
-            output_path=str(md_out),
-            return_content=False
+            return_content=True
         )
         try:
             # Проверяем соединение перед вызовом
@@ -838,7 +837,9 @@ class Manager:
             resp = self.conv_stub.ConvertFile(req, timeout=self.cfg.get("converter_timeout"))  # 60 секунд
 
             if resp.success:
-                return True, resp.output_path
+                md_out.write_text(resp.markdown_content, encoding='utf-8')
+                logger.info("Сохранено в: %s", md_out)
+                return True, str(md_out)
             return False, resp.error_message
         except grpc.RpcError as e:
             logger.error(f"ConvertFile вызвал gRPC ошибку для файла: {file_path}, error: {e}")
