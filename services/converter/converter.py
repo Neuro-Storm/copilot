@@ -234,17 +234,16 @@ class DoclingService(converter_pb2_grpc.DoclingConverterServicer):
             if not input_path.is_file():
                 context.abort(grpc.StatusCode.NOT_FOUND, f"Input file not found: {input_path}")
 
-            # Если return_content == false и output_path пустой, используем input_path с .md расширением
-            if not request.return_content and not request.output_path:
-                output_path = input_path.with_suffix('.md')
-            else:
-                output_path = Path(request.output_path)
-
-                # Проверяем безопасность пути для выходного файла
-                try:
-                    self._validate_path_access(output_path)
-                except ValueError as e:
-                    context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+            # Определяем output_path только если он реально нужен
+            if not request.return_content:
+                if request.output_path:
+                    output_path = Path(request.output_path)
+                    try:
+                        self._validate_path_access(output_path)
+                    except ValueError as e:
+                        context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+                else:
+                    output_path = input_path.with_suffix('.md')
 
             result = self.converter.convert(input_path)
             if not result.document:

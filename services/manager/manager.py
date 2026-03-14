@@ -368,8 +368,7 @@ class FileManager:
             conn.commit()
 
         # Сброс кэша статистики при изменении
-        self.stats_cache = {}
-        self.cache_timestamp = 0
+        self._invalidate_cache()
         return added
 
     def get_pending_task(self):
@@ -633,8 +632,7 @@ class FileManager:
             conn.commit()
 
             # Сброс кэша статистики при изменении
-            self.stats_cache = {}
-            self.cache_timestamp = 0
+            self._invalidate_cache()
 
             return cursor.rowcount > 0
 
@@ -690,8 +688,7 @@ class FileManager:
             conn.commit()
 
             # Сброс кэша статистики при изменении
-            self.stats_cache = {}
-            self.cache_timestamp = 0
+            self._invalidate_cache()
 
             return cursor.rowcount > 0
 
@@ -878,7 +875,6 @@ class Manager:
 
         # Проверка размера файла
         try:
-            import os
             file_size = os.path.getsize(md_path)
             max_size = 100 * 1024 * 1024  # 100 MB
             if file_size > max_size:
