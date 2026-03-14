@@ -400,7 +400,22 @@ python auth.py --reset-password username --new-password newsecret
 - Токены подписываются через HMAC-SHA256
 - Защита от timing-атак
 - Блокировка после множественных неудачных попыток входа
-- Журнал аудита всех действий
+- Журнал аудита всех действий с точным поиском по имени пользователя
+- Cookie токенов: `HttpOnly`, `SameSite=Lax`
+
+### Миграция базы данных Auth
+
+Для существующих установок выполните миграцию:
+
+```bash
+sqlite3 services/auth/auth.db < services/auth/migrate_audit_log.sql
+```
+
+Или вручную:
+```sql
+ALTER TABLE audit_log ADD COLUMN username TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username);
+```
 
 ### Конфигурация
 

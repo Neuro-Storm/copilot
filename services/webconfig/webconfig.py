@@ -24,18 +24,18 @@ load_dotenv(project_root / '.env')
 load_dotenv()
 
 # Добавляем common в путь для импорта middleware
-sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+_common_path = str(Path(__file__).parent.parent / 'common')
+if _common_path not in sys.path:
+    sys.path.append(_common_path)
 from tokens import verify_token
 
 AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
 
-load_dotenv()
-
 app = Flask(__name__)
 
 # Define services directory
-SERVICES_DIR = Path("../").resolve()
-BASE_SERVICES_DIR = SERVICES_DIR.resolve()
+SERVICES_DIR = Path(__file__).parent.parent.resolve()
+BASE_SERVICES_DIR = SERVICES_DIR
 CONFIG_FILE_NAME = "config.json"
 
 SERVICE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")

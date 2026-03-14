@@ -45,7 +45,9 @@ project_root = Path(__file__).parent.parent.parent
 load_dotenv(project_root / '.env')
 
 # Добавляем common в путь для импорта middleware
-sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+_common_path = str(Path(__file__).parent.parent / 'common')
+if _common_path not in sys.path:
+    sys.path.append(_common_path)
 from auth_middleware import require_auth, require_role
 
 AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')

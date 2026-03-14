@@ -46,7 +46,9 @@ load_dotenv(project_root / '.env')
 load_dotenv()
 
 # Добавляем common в путь импорта
-sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+_common_path = str(Path(__file__).parent.parent / 'common')
+if _common_path not in sys.path:
+    sys.path.append(_common_path)
 from tokens import create_token, verify_token
 
 # --- Конфигурация ---
@@ -131,6 +133,7 @@ def init_db():
                 action TEXT NOT NULL,
                 details TEXT DEFAULT '',
                 ip_address TEXT DEFAULT '',
+                username TEXT DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -138,6 +141,7 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
             CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
             CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+            CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username);
             CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
         """)
     logger.info("База данных инициализирована")
@@ -155,13 +159,13 @@ def cleanup_expired_sessions():
 
 # --- Вспомогательные функции ---
 
-def log_audit(user_id, action, details='', ip_address=''):
+def log_audit(user_id, action, details='', ip_address='', username=''):
     """Записывает действие в журнал аудита."""
     try:
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO audit_log (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)",
-                (user_id, action, details, ip_address)
+                "INSERT INTO audit_log (user_id, action, details, ip_address, username) VALUES (?, ?, ?, ?, ?)",
+                (user_id, action, details, ip_address, username)
             )
     except Exception as e:
         logger.error(f"Ошибка записи в журнал аудита: {e}")
@@ -200,9 +204,9 @@ def _check_lockout(username):
         row = conn.execute(
             """SELECT COUNT(*) as cnt FROM audit_log
                WHERE action = 'login_failed'
-               AND details LIKE ?
+               AND username = ?
                AND created_at > datetime(?, 'unixepoch')""",
-            (f'%username={username}%', cutoff)
+            (username, cutoff)
         ).fetchone()
         if row and row['cnt'] >= MAX_LOGIN_ATTEMPTS:
             return True, LOCKOUT_DURATION
@@ -284,7 +288,7 @@ def login():
         ).fetchone()
 
     if not user or not check_password_hash(user['password_hash'], password):
-        log_audit(None, 'login_failed', f'username={username}', client_ip)
+        log_audit(None, 'login_failed', f'username={username}', client_ip, username=username)
         logger.warning(f"[{username}] Неудачная попытка входа, ip={client_ip}")
         return jsonify({'error': 'Неверные учётные данные'}), 401
 

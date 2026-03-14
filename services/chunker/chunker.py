@@ -229,19 +229,32 @@ class Chunker(chunker_pb2_grpc.ChunkerServiceServicer):
 
             splitter = RecursiveChunker(size, overlap)
 
-            # Используем генератор напрямую
-            current_pos = 0
+            # Используем генератор напрямую с корректным подсчётом позиций
+            last_search_pos = 0
             for chunk_text, _ in splitter.split_text(text):
+                # Находим реальную позицию чанка в исходном тексте
+                start_pos = text.find(chunk_text, last_search_pos)
+                if start_pos == -1:
+                    # Фолбэк: если точное совпадение не найдено, ищем с начала
+                    start_pos = text.find(chunk_text)
+
+                if start_pos >= 0:
+                    end_pos = start_pos + len(chunk_text)
+                    last_search_pos = start_pos + 1
+                else:
+                    # Крайний случай: chunk_text отсутствует в оригинале
+                    start_pos = 0
+                    end_pos = len(chunk_text)
+
                 # В RAG метаданные критичны для citations
                 meta = {"source": filename, "length": str(len(chunk_text))}
 
                 yield chunker_pb2.Chunk(
                     text=chunk_text,
-                    start=current_pos,
-                    end=current_pos + len(chunk_text),
+                    start=start_pos,
+                    end=end_pos,
                     metadata=meta
                 )
-                current_pos += len(chunk_text) # Примерная позиция
 
         except FileNotFoundError:
             context.abort(grpc.StatusCode.NOT_FOUND, "File not found")

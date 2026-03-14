@@ -7,8 +7,9 @@ import sys
 import os
 from pathlib import Path
 # Добавляем путь к generator
-generator_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'generator')
-sys.path.insert(0, generator_path)
+_generator_path = str(Path(__file__).parent.parent / 'generator')
+if _generator_path not in sys.path:
+    sys.path.append(_generator_path)
 
 # Загрузка секретного ключа для авторизации
 from dotenv import load_dotenv
@@ -17,7 +18,9 @@ load_dotenv(project_root / '.env')
 load_dotenv()
 
 # Добавляем common в путь для импорта middleware
-sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+_common_path = str(Path(__file__).parent.parent / 'common')
+if _common_path not in sys.path:
+    sys.path.append(_common_path)
 from auth_middleware_fastapi import get_current_user, get_current_user_optional
 
 AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')

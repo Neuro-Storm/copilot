@@ -191,6 +191,12 @@ python websearch.py
 
 5. **"Генерация ответов не работает"**: Проверьте, что `ENABLE_GENERATION` установлен в `true` и сервис generator доступен.
 
+6. **Ошибки компиляции proto файлов**: Убедитесь, что установлен пакет `grpcio-tools`:
+   ```bash
+   pip install grpcio-tools
+   python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. *.proto
+   ```
+
 Для проверки соединения с searcher и generator сервисами можно использовать:
 ```bash
 python -m pytest tests/test_connection.py -v

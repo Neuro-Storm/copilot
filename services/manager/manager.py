@@ -34,7 +34,9 @@ project_root = Path(__file__).parent.parent.parent
 load_dotenv(project_root / '.env')
 
 # Добавляем common в путь для импорта middleware
-sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+_common_path = str(Path(__file__).parent.parent / 'common')
+if _common_path not in sys.path:
+    sys.path.append(_common_path)
 from auth_middleware import require_role
 
 AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
@@ -842,8 +844,18 @@ class Manager:
                 return True, str(md_out)
             return False, resp.error_message
         except grpc.RpcError as e:
-            logger.error(f"ConvertFile вызвал gRPC ошибку для файла: {file_path}, error: {e}")
-            return False, f"gRPC Error: {e}"
+            status_code = e.code().name if hasattr(e, 'code') else 'UNKNOWN'
+            details = e.details() if hasattr(e, 'details') else str(e)
+            logger.error(f"ConvertFile gRPC ошибка для файла {file_path}: {status_code} - {details}")
+
+            if e.code() == grpc.StatusCode.UNAVAILABLE:
+                return False, "Сервис конвертации недоступен"
+            elif e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                return False, "Таймаут при конвертации файла"
+            elif e.code() == grpc.StatusCode.INTERNAL:
+                return False, f"Внутренняя ошибка конвертации: {details}"
+            else:
+                return False, f"Ошибка конвертации ({status_code}): {details}"
         except Exception as e:
             logger.error(f"Неожиданная ошибка при конвертации файла {file_path}: {e}")
             return False, f"Unexpected error during conversion: {e}"
@@ -910,8 +922,18 @@ class Manager:
                 return True, "OK"
             return False, resp.message
         except grpc.RpcError as e:
-            logger.error(f"IndexDocument вызвал gRPC ошибку для файла: {md_path}, error: {e}")
-            return False, f"gRPC Error: {e}"
+            status_code = e.code().name if hasattr(e, 'code') else 'UNKNOWN'
+            details = e.details() if hasattr(e, 'details') else str(e)
+            logger.error(f"IndexDocument gRPC ошибка для файла {md_path}: {status_code} - {details}")
+
+            if e.code() == grpc.StatusCode.UNAVAILABLE:
+                return False, "Сервис индексации недоступен"
+            elif e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                return False, "Таймаут при индексации файла"
+            elif e.code() == grpc.StatusCode.INTERNAL:
+                return False, f"Внутренняя ошибка индексации: {details}"
+            else:
+                return False, f"Ошибка индексации ({status_code}): {details}"
         except Exception as e:
             logger.error(f"Неожиданная ошибка при индексации файла {md_path}: {e}")
             return False, f"Unexpected error during indexing: {e}"
@@ -949,28 +971,8 @@ class Manager:
 
         if not ok:
             logger.error("Ошибка конвертации: %s", res)
-            # Форматируем сообщение об ошибке, чтобы избежать длинных внутренних сообщений gRPC
-            error_msg = str(res)
-            if "gRPC Error" in error_msg and "_InactiveRpcError" in error_msg:
-                # Извлекаем только основную информацию об ошибке
-                if "details =" in error_msg:
-                    start = error_msg.find("details =") + len("details =")
-                    end = error_msg.find('"', start + 2)
-                    if end > start:
-                        details = error_msg[start:end].strip().strip('"\'')
-                        if details:
-                            error_msg = f"Ошибка конвертации: gRPC Internal Error - {details}"
-                        else:
-                            error_msg = "Ошибка конвертации: gRPC Internal Error - сервис конвертации недоступен"
-                    else:
-                        error_msg = "Ошибка конвертации: gRPC Internal Error - сервис конвертации недоступен"
-                else:
-                    error_msg = "Ошибка конвертации: gRPC Internal Error - сервис конвертации недоступен"
-            elif "Timeout" in error_msg:
-                # Обработка таймаута
-                error_msg = "Таймаут при конвертации файла - сервис конвертации не отвечает"
             logger.info(f"Устанавливаем статус 'failed' для файла ID: {fid}")
-            update_result = self.fm.update_status(fid, 'failed', error_message=error_msg)
+            update_result = self.fm.update_status(fid, 'failed', error_message=res)
             if not update_result:
                 logger.error(f"НЕУДАЧА: Не удалось обновить статус файла ID: {fid} на 'failed'")
             logger.info(f"Завершаем обработку файла ID: {fid} с ошибкой конвертации")
@@ -995,31 +997,8 @@ class Manager:
 
         if not ok_idx:
             logger.error("Ошибка индексации: %s", res_idx)
-            # Форматируем сообщение об ошибке индексации, чтобы избежать длинных внутренних сообщений gRPC
-            error_msg_idx = str(res_idx)
-            if "gRPC Error" in error_msg_idx and "_InactiveRpcError" in error_msg_idx:
-                # Извлекаем только основную информацию об ошибке
-                if "details =" in error_msg_idx:
-                    start = error_msg_idx.find("details =") + len("details =")
-                    end = error_msg_idx.find('"', start + 2)
-                    if end > start:
-                        details = error_msg_idx[start:end].strip().strip('"\'')
-                        if details:
-                            error_msg_idx = f"Ошибка индексации: gRPC Internal Error - {details}"
-                        else:
-                            error_msg_idx = "Ошибка индексации: gRPC Internal Error - сервис индексации недоступен"
-                    else:
-                        error_msg_idx = "Ошибка индексации: gRPC Internal Error - сервис индексации недоступен"
-                else:
-                    error_msg_idx = "Ошибка индексации: gRPC Internal Error - сервис индексации недоступен"
-            elif "Timeout" in error_msg_idx:
-                # Обработка таймаута
-                error_msg_idx = "Таймаут при индексации файла - сервис индексации не отвечает"
-            else:
-                error_msg_idx = f"Ошибка индексации: {res_idx}"
-            # Сохраняем, что хотя бы сконвертировали, но добавляем сообщение об ошибке индексации
             logger.info(f"Устанавливаем статус 'conversion_success_only' для файла ID: {fid}")
-            update_result = self.fm.update_status(fid, 'conversion_success_only', md_path=md_file, error_message=error_msg_idx)
+            update_result = self.fm.update_status(fid, 'conversion_success_only', md_path=md_file, error_message=res_idx)
             if not update_result:
                 logger.error(f"НЕУДАЧА: Не удалось обновить статус файла ID: {fid} на 'conversion_success_only'")
             logger.info(f"Завершаем обработку файла ID: {fid} с ошибкой индексации")

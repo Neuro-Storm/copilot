@@ -1,0 +1,525 @@
+Вот подробные инструкции по исправлению каждого из указанных пунктов.
+
+---
+
+## Пункт 2. Cookie без флага `Secure`
+
+**Файл:** `services/auth/auth.py`
+
+Нужно добавить параметр `secure`, который включается в зависимости от окружения. Найдите в функции `login()` место установки cookie и замените:
+
+**Было:**
+```python
+response.set_cookie('access_token', access_token, httponly=True,
+                    samesite='Lax', max_age=ACCESS_TOKEN_TTL)
+response.set_cookie('refresh_token', refresh_token, httponly=True,
+                    samesite='Lax', max_age=REFRESH_TOKEN_TTL)
+```
+
+**Стало:**
+```python
+# Определяем, работаем ли в продакшен-режиме
+is_production = os.getenv('ENVIRONMENT', 'development') == 'production'
+
+response.set_cookie('access_token', access_token, httponly=True,
+                    samesite='Lax', secure=is_production, max_age=ACCESS_TOKEN_TTL)
+response.set_cookie('refresh_token', refresh_token, httponly=True,
+                    samesite='Lax', secure=is_production, max_age=REFRESH_TOKEN_TTL)
+```
+
+Аналогичное изменение нужно сделать в функции `refresh()`, где тоже устанавливаются cookie. Найдите в ней такой же блок `set_cookie` и добавьте `secure=is_production`.
+
+Чтобы переменная `is_production` была доступна во всех местах, вынесите её в начало файла, рядом с другими константами конфигурации:
+
+```python
+# После загрузки конфигурации, рядом с SECRET_KEY, ACCESS_TOKEN_TTL и т.д.
+IS_PRODUCTION = os.getenv('ENVIRONMENT', 'development') == 'production'
+```
+
+И используйте `IS_PRODUCTION` вместо локальной переменной.
+
+При развёртывании в продакшен добавьте в `.env`:
+```
+ENVIRONMENT=production
+```
+
+---
+
+## Пункт 4. `_check_lockout` — неточный подсчёт неудачных попыток
+
+**Файл:** `services/auth/auth.py`
+
+Проблема в том, что `LIKE '%username=admin%'` может совпасть с `username=admin_backup`. Есть два варианта исправления.
+
+**Вариант A (быстрый) — уточнить LIKE-паттерн:**
+
+**Было:**
+```python
+def _check_lockout(username):
+    with get_db() as conn:
+        cutoff = time.time() - LOCKOUT_DURATION
+        row = conn.execute(
+            """SELECT COUNT(*) as cnt FROM audit_log
+               WHERE action = 'login_failed'
+               AND details LIKE ?
+               AND created_at > datetime(?, 'unixepoch')""",
+            (f'%username={username}%', cutoff)
+        ).fetchone()
+        if row and row['cnt'] >= MAX_LOGIN_ATTEMPTS:
+            return True, LOCKOUT_DURATION
+    return False, 0
+```
+
+**Стало:**
+```python
+def _check_lockout(username):
+    with get_db() as conn:
+        cutoff = time.time() - LOCKOUT_DURATION
+        row = conn.execute(
+            """SELECT COUNT(*) as cnt FROM audit_log
+               WHERE action = 'login_failed'
+               AND (details = ? OR details LIKE ? OR details LIKE ? OR details LIKE ?)
+               AND created_at > datetime(?, 'unixepoch')""",
+            (
+                f'username={username}',          # точное совпадение
+                f'username={username},%',         # в начале списка
+                f'%, username={username},%',      # в середине
+                f'%, username={username}',        # в конце
+                cutoff
+            )
+        ).fetchone()
+        if row and row['cnt'] >= MAX_LOGIN_ATTEMPTS:
+            return True, LOCKOUT_DURATION
+    return False, 0
+```
+
+**Вариант B (правильный) — записывать username в отдельное поле и искать точно:**
+
+Шаг 1. Измените функцию `log_audit`, добавив параметр `username`:
+
+```python
+def log_audit(user_id, action, details='', ip_address='', username=''):
+    """Записывает действие в журнал аудита."""
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO audit_log (user_id, action, details, ip_address, username) VALUES (?, ?, ?, ?, ?)",
+                (user_id, action, details, ip_address, username)
+            )
+    except Exception as e:
+        logger.error(f"Ошибка записи в журнал аудита: {e}")
+```
+
+Шаг 2. Добавьте столбец `username` в таблицу `audit_log` в функции `init_db`:
+
+```python
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    details TEXT DEFAULT '',
+    ip_address TEXT DEFAULT '',
+    username TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username);
+```
+
+Для существующей базы выполните миграцию:
+```sql
+ALTER TABLE audit_log ADD COLUMN username TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username);
+```
+
+Шаг 3. В функции `login()` измените вызов `log_audit` для неудачного входа:
+
+**Было:**
+```python
+log_audit(None, 'login_failed', f'username={username}', client_ip)
+```
+
+**Стало:**
+```python
+log_audit(None, 'login_failed', f'username={username}', client_ip, username=username)
+```
+
+Шаг 4. Упростите `_check_lockout`:
+
+```python
+def _check_lockout(username):
+    with get_db() as conn:
+        cutoff = time.time() - LOCKOUT_DURATION
+        row = conn.execute(
+            """SELECT COUNT(*) as cnt FROM audit_log
+               WHERE action = 'login_failed'
+               AND username = ?
+               AND created_at > datetime(?, 'unixepoch')""",
+            (username, cutoff)
+        ).fetchone()
+        if row and row['cnt'] >= MAX_LOGIN_ATTEMPTS:
+            return True, LOCKOUT_DURATION
+    return False, 0
+```
+
+---
+
+## Пункт 6. `SERVICES_DIR` зависит от рабочей директории
+
+**Файл:** `services/webconfig/webconfig.py`
+
+**Было:**
+```python
+SERVICES_DIR = Path("../").resolve()
+BASE_SERVICES_DIR = SERVICES_DIR.resolve()
+```
+
+**Стало:**
+```python
+SERVICES_DIR = Path(__file__).parent.parent.resolve()
+BASE_SERVICES_DIR = SERVICES_DIR
+```
+
+Объяснение: `Path(__file__).parent` — это директория `webconfig/`, а `.parent` от неё — директория `services/`. Теперь путь всегда вычисляется относительно расположения файла `webconfig.py`, а не от текущей рабочей директории.
+
+---
+
+## Пункт 7. `check_status.sh` не обнаруживает `web_ui`
+
+**Файл:** `check_status.sh`
+
+**Было:**
+```bash
+SERVICES=("auth" "chunker" "converter" "embedder" "indexer" "manager" "searcher" "websearch" "webconfig" "web_ui" "generator")
+
+for service in "${SERVICES[@]}"; do
+    if pgrep -f "python.*$SERVICES_DIR/$service/$service\.py" > /dev/null; then
+        PIDS=$(pgrep -f "python.*$SERVICES_DIR/$service/$service\.py" | tr '\n' ' ')
+        echo "$service: РАБОТАЕТ ($PIDS)"
+    else
+        echo "$service: НЕ РАБОТАЕТ"
+    fi
+done
+```
+
+**Стало:**
+```bash
+# Ассоциативный массив: сервис -> имя главного файла
+declare -A SERVICE_FILES
+SERVICE_FILES=(
+    ["auth"]="auth.py"
+    ["chunker"]="chunker.py"
+    ["converter"]="converter.py"
+    ["embedder"]="embedder.py"
+    ["indexer"]="indexer.py"
+    ["manager"]="manager.py"
+    ["searcher"]="searcher.py"
+    ["websearch"]="websearch.py"
+    ["webconfig"]="webconfig.py"
+    ["web_ui"]="web_ui_service.py"
+    ["generator"]="generator.py"
+)
+
+for service in "${!SERVICE_FILES[@]}"; do
+    main_file="${SERVICE_FILES[$service]}"
+    pattern="python.*$SERVICES_DIR/$service/$main_file"
+
+    if pgrep -f "$pattern" > /dev/null; then
+        PIDS=$(pgrep -f "$pattern" | tr '\n' ' ')
+        echo "$service: РАБОТАЕТ ($PIDS)"
+    else
+        echo "$service: НЕ РАБОТАЕТ"
+    fi
+done
+```
+
+Если важен порядок вывода (ассоциативные массивы в bash не гарантируют порядок), добавьте отдельный массив порядка:
+
+```bash
+SERVICE_ORDER=("auth" "chunker" "converter" "embedder" "indexer" "manager" "searcher" "websearch" "webconfig" "web_ui" "generator")
+
+for service in "${SERVICE_ORDER[@]}"; do
+    main_file="${SERVICE_FILES[$service]}"
+    # ... далее тот же код
+done
+```
+
+---
+
+## Пункт 8. Двойной вызов `load_dotenv()` в webconfig
+
+**Файл:** `services/webconfig/webconfig.py`
+
+В начале файла сейчас три вызова:
+
+```python
+project_root = Path(__file__).parent.parent.parent
+load_dotenv(project_root / '.env')  # 1 — загрузка из корневого .env
+load_dotenv()                        # 2 — загрузка из текущей директории
+# ...
+AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
+
+load_dotenv()                        # 3 — дубликат, удалить
+```
+
+Удалите третий вызов. Оставьте только два:
+
+```python
+# Загрузка секретного ключа для авторизации
+project_root = Path(__file__).parent.parent.parent
+load_dotenv(project_root / '.env')  # Корневой .env с AUTH_SECRET_KEY
+load_dotenv()                        # Локальный .env (если есть)
+
+AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
+```
+
+Убедитесь, что удалённый третий `load_dotenv()` не стоял между блоками кода, от которых зависит загрузка других переменных. В текущем коде он стоит сразу после второго и ничего нового не делает.
+
+---
+
+## Пункт 9. Загрязнение `sys.path` множественными `insert(0, ...)`
+
+**Проблема:** каждый сервис вставляет пути в начало `sys.path`, что может привести к импорту «чужих» модулей. Например, `websearch.py` вставляет путь к `generator/`, и если в директории `generator/` есть файл с именем, совпадающим с каким-то стандартным модулем, он перехватит импорт.
+
+**Решение:** заменить `sys.path.insert(0, ...)` на `sys.path.append(...)` и использовать только тогда, когда действительно необходимо.
+
+**Файл `services/websearch/websearch.py`:**
+
+**Было:**
+```python
+generator_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'generator')
+sys.path.insert(0, generator_path)
+# ...
+sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+```
+
+**Стало:**
+```python
+# Добавляем пути для импорта proto-файлов и общих модулей
+# Используем append вместо insert(0), чтобы не перекрывать стандартные модули
+_common_path = str(Path(__file__).parent.parent / 'common')
+_generator_path = str(Path(__file__).parent.parent / 'generator')
+
+if _common_path not in sys.path:
+    sys.path.append(_common_path)
+if _generator_path not in sys.path:
+    sys.path.append(_generator_path)
+```
+
+**Файл `services/web_ui/web_ui_service.py`:**
+
+**Было:**
+```python
+sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+```
+
+**Стало:**
+```python
+_common_path = str(Path(__file__).parent.parent / 'common')
+if _common_path not in sys.path:
+    sys.path.append(_common_path)
+```
+
+**Файл `services/webconfig/webconfig.py`:**
+
+**Было:**
+```python
+sys.path.insert(0, str(Path(__file__).parent.parent / 'common'))
+```
+
+**Стало:**
+```python
+_common_path = str(Path(__file__).parent.parent / 'common')
+if _common_path not in sys.path:
+    sys.path.append(_common_path)
+```
+
+Тот же паттерн нужно применить во всех файлах, где встречается `sys.path.insert(0, ...)`. Ключевые правила: использовать `append` вместо `insert(0)`, проверять `if path not in sys.path` перед добавлением.
+
+---
+
+## Пункт 10. Неверный `current_pos` в chunker
+
+**Файл:** `services/chunker/chunker.py`
+
+Проблема: при наличии overlap чанки перекрываются, и `current_pos += len(chunk_text)` не соответствует реальному смещению в исходном тексте.
+
+**Было:**
+```python
+current_pos = 0
+for chunk_text, _ in splitter.split_text(text):
+    meta = {"source": filename, "length": str(len(chunk_text))}
+
+    yield chunker_pb2.Chunk(
+        text=chunk_text,
+        start=current_pos,
+        end=current_pos + len(chunk_text),
+        metadata=meta
+    )
+    current_pos += len(chunk_text)  # Примерная позиция
+```
+
+**Стало:**
+```python
+for chunk_text, _ in splitter.split_text(text):
+    # Находим реальную позицию чанка в исходном тексте
+    # Ищем начиная с позиции после начала предыдущего чанка,
+    # чтобы корректно обрабатывать повторяющиеся фрагменты
+    start_pos = text.find(chunk_text, getattr(self, '_last_search_pos', 0))
+    if start_pos == -1:
+        # Фолбэк: если точное совпадение не найдено (например, текст был
+        # модифицирован сплиттером), ищем с начала
+        start_pos = text.find(chunk_text)
+    
+    if start_pos == -1:
+        # Крайний случай: chunk_text отсутствует в оригинале
+        # (возможно при нормализации пробелов сплиттером)
+        start_pos = 0
+        end_pos = len(chunk_text)
+    else:
+        end_pos = start_pos + len(chunk_text)
+    
+    # Запоминаем позицию для следующего поиска
+    # Сдвигаемся на (размер чанка - overlap), чтобы не пропустить следующий
+    self._last_search_pos = start_pos + 1
+
+    meta = {"source": filename, "length": str(len(chunk_text))}
+
+    yield chunker_pb2.Chunk(
+        text=chunk_text,
+        start=start_pos,
+        end=end_pos,
+        metadata=meta
+    )
+```
+
+Однако использование `self._last_search_pos` здесь неудобно, так как `ChunkIt` — это метод, вызываемый для каждого запроса. Лучше использовать локальную переменную:
+
+```python
+last_search_pos = 0
+for chunk_text, _ in splitter.split_text(text):
+    start_pos = text.find(chunk_text, last_search_pos)
+    if start_pos == -1:
+        start_pos = text.find(chunk_text)
+    
+    if start_pos >= 0:
+        end_pos = start_pos + len(chunk_text)
+        last_search_pos = start_pos + 1
+    else:
+        start_pos = 0
+        end_pos = len(chunk_text)
+
+    meta = {"source": filename, "length": str(len(chunk_text))}
+
+    yield chunker_pb2.Chunk(
+        text=chunk_text,
+        start=start_pos,
+        end=end_pos,
+        metadata=meta
+    )
+```
+
+Если `split_text` уже возвращает позицию во втором элементе кортежа (сейчас она игнорируется через `_`), стоит проверить, что именно возвращает `RecursiveChunker.split_text`. Если второй элемент — это позиция, просто используйте его:
+
+```python
+for chunk_text, position in splitter.split_text(text):
+    start_pos = position if position is not None else text.find(chunk_text)
+    end_pos = start_pos + len(chunk_text) if start_pos >= 0 else len(chunk_text)
+    # ...
+```
+
+---
+
+## Пункт 14. Хрупкий парсинг gRPC-ошибок в manager
+
+**Файл:** `services/manager/manager.py`
+
+Проблема: строковое представление `_InactiveRpcError` парсится через `find("details =")`, что ненадёжно.
+
+Нужно перехватывать `grpc.RpcError` и использовать его методы `.code()` и `.details()`. Найдите в файле все блоки, где происходит парсинг строки ошибки, и замените их.
+
+**Было (блок обработки ошибки конвертации):**
+```python
+except grpc.RpcError as e:
+    logger.error(f"ConvertFile вызвал gRPC ошибку для файла: {file_path}, error: {e}")
+    return False, f"gRPC Error: {e}"
+```
+
+А затем в `_process_file` при обработке результата:
+```python
+if not ok:
+    error_msg = str(res)
+    if "gRPC Error" in error_msg and "_InactiveRpcError" in error_msg:
+        if "details =" in error_msg:
+            start = error_msg.find("details =") + len("details =")
+            end = error_msg.find('"', start + 2)
+            if end > start:
+                details = error_msg[start:end].strip().strip('"\'')
+                # ... и так далее
+```
+
+**Стало (метод `convert`):**
+```python
+except grpc.RpcError as e:
+    status_code = e.code().name if hasattr(e, 'code') else 'UNKNOWN'
+    details = e.details() if hasattr(e, 'details') else str(e)
+    logger.error(f"ConvertFile gRPC ошибка для файла {file_path}: {status_code} - {details}")
+    
+    if e.code() == grpc.StatusCode.UNAVAILABLE:
+        return False, "Сервис конвертации недоступен"
+    elif e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+        return False, "Таймаут при конвертации файла"
+    elif e.code() == grpc.StatusCode.INTERNAL:
+        return False, f"Внутренняя ошибка конвертации: {details}"
+    else:
+        return False, f"Ошибка конвертации ({status_code}): {details}"
+```
+
+**Стало (метод `index`):**
+```python
+except grpc.RpcError as e:
+    status_code = e.code().name if hasattr(e, 'code') else 'UNKNOWN'
+    details = e.details() if hasattr(e, 'details') else str(e)
+    logger.error(f"IndexDocument gRPC ошибка для файла {md_path}: {status_code} - {details}")
+    
+    if e.code() == grpc.StatusCode.UNAVAILABLE:
+        return False, "Сервис индексации недоступен"
+    elif e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+        return False, "Таймаут при индексации файла"
+    elif e.code() == grpc.StatusCode.INTERNAL:
+        return False, f"Внутренняя ошибка индексации: {details}"
+    else:
+        return False, f"Ошибка индексации ({status_code}): {details}"
+```
+
+**В `_process_file` упрощаем обработку:**
+
+Удалите весь блок с парсингом строк `"_InactiveRpcError"`, `"details ="` и т.д. Теперь методы `convert` и `index` уже возвращают человекочитаемые сообщения, и `_process_file` может использовать их напрямую:
+
+**Было:**
+```python
+ok, res = self.convert(fpath)
+if not ok:
+    error_msg = str(res)
+    if "gRPC Error" in error_msg and "_InactiveRpcError" in error_msg:
+        if "details =" in error_msg:
+            start = error_msg.find("details =") + len("details =")
+            # ... 20+ строк парсинга ...
+    elif "Timeout" in error_msg:
+        error_msg = "Таймаут при конвертации файла..."
+    self.fm.update_status(fid, 'failed', error_message=error_msg)
+    return False
+```
+
+**Стало:**
+```python
+ok, res = self.convert(fpath)
+if not ok:
+    logger.info(f"Устанавливаем статус 'failed' для файла ID: {fid}")
+    update_result = self.fm.update_status(fid, 'failed', error_message=res)
+    if not update_result:
+        logger.error(f"Не удалось обновить статус файла ID: {fid} на 'failed'")
+    return False
+```
+
+Такую же замену сделайте для блока обработки ошибки индексации (замените весь парсинг строк на прямое использование сообщения из `self.index()`).

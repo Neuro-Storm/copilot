@@ -211,6 +211,8 @@ WEB_CONFIG_CORS_ORIGINS=http://localhost:3000
 WEB_CONFIG_DEBUG=0
 ```
 
+**Важно:** WebConfig требует роль `admin` для доступа ко всем функциям.
+
 ## .env
 
 Создайте файл `.env` в директории сервиса:
@@ -293,3 +295,9 @@ Webconfig также позволяет:
 - Редактировать proto файлы через веб-интерфейс
 - Проверять синтаксис proto файлов
 - Компилировать proto файлы в pb2
+
+**Важно:** Для компиляции proto файлов требуется установленный пакет `grpcio-tools`:
+```bash
+pip install grpcio-tools
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. *.proto
+```

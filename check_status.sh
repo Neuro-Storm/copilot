@@ -15,13 +15,32 @@ else
     echo "Qdrant: НЕ РАБОТАЕТ"
 fi
 
-# Определяем список сервисов
-SERVICES=("auth" "chunker" "converter" "embedder" "indexer" "manager" "searcher" "websearch" "webconfig" "web_ui" "generator")
+# Определяем список сервисов и их главных файлов
+declare -A SERVICE_FILES
+SERVICE_FILES=(
+    ["auth"]="auth.py"
+    ["chunker"]="chunker.py"
+    ["converter"]="converter.py"
+    ["embedder"]="embedder.py"
+    ["indexer"]="indexer.py"
+    ["manager"]="manager.py"
+    ["searcher"]="searcher.py"
+    ["websearch"]="websearch.py"
+    ["webconfig"]="webconfig.py"
+    ["web_ui"]="web_ui_service.py"
+    ["generator"]="generator.py"
+)
+
+# Порядок вывода сервисов
+SERVICE_ORDER=("auth" "chunker" "converter" "embedder" "indexer" "manager" "searcher" "websearch" "webconfig" "web_ui" "generator")
 
 # Проверяем статус каждого сервиса
-for service in "${SERVICES[@]}"; do
-    if pgrep -f "python.*$SERVICES_DIR/$service/$service\.py" > /dev/null; then
-        PIDS=$(pgrep -f "python.*$SERVICES_DIR/$service/$service\.py" | tr '\n' ' ')
+for service in "${SERVICE_ORDER[@]}"; do
+    main_file="${SERVICE_FILES[$service]}"
+    pattern="python.*$SERVICES_DIR/$service/$main_file"
+
+    if pgrep -f "$pattern" > /dev/null; then
+        PIDS=$(pgrep -f "$pattern" | tr '\n' ' ')
         echo "$service: РАБОТАЕТ ($PIDS)"
     else
         echo "$service: НЕ РАБОТАЕТ"

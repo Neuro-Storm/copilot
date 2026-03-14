@@ -58,6 +58,26 @@ python chunker.py
 
 По умолчанию сервер запускается на порту 50052.
 
+### Пример клиента
+
+```python
+import grpc
+import chunker_pb2
+import chunker_pb2_grpc
+
+channel = grpc.insecure_channel('localhost:50052')
+stub = chunker_pb2_grpc.ChunkerServiceStub(channel)
+
+request = chunker_pb2.ChunkRequest(
+    content="Текст для разделения на фрагменты...",
+    chunk_size=500,
+    overlap=50
+)
+
+for chunk in stub.ChunkIt(request):
+    print(f"Позиция: {chunk.start}-{chunk.end}, Текст: {chunk.text[:50]}...")
+```
+
 ## Определение gRPC сервиса
 
 Сервис реализует следующий интерфейс:

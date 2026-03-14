@@ -80,5 +80,20 @@ python auth.py --list-users
 - Пароли хешируются через PBKDF2-SHA256
 - Токены подписываются через HMAC-SHA256
 - Защита от timing-атак через `compare_digest`
-- Блокировка после множественных неудачных попыток входа
-- Журнал аудита всех действий
+- Блокировка после множественных неудачных попыток входа (защита от подбора пароля)
+- Журнал аудита всех действий с точным поиском по имени пользователя
+- Cookie токенов: `HttpOnly`, `SameSite=Lax`
+
+## Миграция базы данных
+
+Для существующих установок выполните миграцию для добавления поля `username` в таблицу `audit_log`:
+
+```bash
+sqlite3 services/auth/auth.db < services/auth/migrate_audit_log.sql
+```
+
+Или вручную:
+```sql
+ALTER TABLE audit_log ADD COLUMN username TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_log(username);
+```
