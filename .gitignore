@@ -199,10 +199,6 @@ services/*/*.db
 config.json.backup
 services/*/*/config.json.backup
 
-# Исправления и заметки
-исправления.txt
-*.txt.bak
-
 # Cache directories
 .cache/
 __pycache__/
