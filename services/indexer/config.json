@@ -22,7 +22,6 @@
     "port": 50054,
     "max_workers": 1
   },
-  "embedding_batch_size": 32,
   "chunk_size": 1000,
   "chunk_overlap": 100,
   "security": {

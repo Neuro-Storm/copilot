@@ -90,7 +90,7 @@ class SearchEngine:
         self.qdrant_host = config.get("qdrant_host", "localhost")
         self.qdrant_port = config.get("qdrant_port", 6333)
         self.collection_name = config.get("collection_name", "documents")
-        self.vector_name = config.get("vector_name", "dense_vector")
+        self.vector_name = config.get("vector_name") or None
         self.result_count = config.get("result_count", 10)
         self.grpc_timeout = config.get("grpc_timeout", 10)
         self.with_payload = config.get("with_payload", True)

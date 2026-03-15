@@ -50,7 +50,6 @@
     "port": 50054,
     "max_workers": 1
   },
-  "embedding_batch_size": 32,
   "chunk_size": 512,
   "chunk_overlap": 128,
   "security": {
@@ -74,7 +73,6 @@
 - `logging.level/file` - уровень логирования и имя файла лога
 - `server.host/port` - хост и порт для запуска gRPC сервера
 - `server.max_workers` - максимальное количество рабочих потоков
-- `embedding_batch_size` - размер батча для генерации эмбеддингов
 - `chunk_size` - размер чанка при разбиении документов
 - `chunk_overlap` - размер перекрытия между чанками
 - `security.max_content_size` - максимальный размер содержимого документа в байтах

@@ -10,6 +10,7 @@
     "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
   },
   "chunking": {
+    "_note": "Эти значения используются как fallback. При вызове через indexer параметры передаются в gRPC-запросе из конфига indexer.",
     "chunk_size": 1000,
     "overlap_size": 100,
     "max_file_size_mb": 150

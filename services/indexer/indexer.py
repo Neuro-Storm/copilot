@@ -308,6 +308,9 @@ class IndexerService(indexer_pb2_grpc.IndexerServiceServicer):
                 overlap=config['chunk_overlap']    # Перекрытие из конфигурации
             )
 
+            # Получить таймаут из конфигурации заранее, до цикла обработки чанков
+            embedder_timeout = config.get('processing', {}).get('embedder_timeout', 30.0)
+
             # Получить чанки из сервиса и обработать их
             try:
                 chunk_stream = self.chunker_client.ChunkIt(chunk_request)
@@ -321,10 +324,6 @@ class IndexerService(indexer_pb2_grpc.IndexerServiceServicer):
             async for chunk in chunk_stream:
                 # Получить эмбеддинг для чанка с таймаутом
                 text_chunks = embedder_pb2.TextChunks(texts=[chunk.text])
-
-                # Получить таймаут из конфигурации
-                config = get_config()
-                embedder_timeout = config.get('processing', {}).get('embedder_timeout', 30.0)
 
                 try:
                     response = await asyncio.wait_for(
