@@ -1,6 +1,7 @@
 import logging
 import json
 import time
+import re
 from concurrent import futures
 from pathlib import Path
 from typing import List, Dict, Any
@@ -158,31 +159,34 @@ class GeneratorService(generator_pb2_grpc.GeneratorServiceServicer):
         # В proto3 строковые поля всегда присутствуют, поэтому проверяем на пустоту
         system_prompt = request.system_prompt if request.system_prompt else SYSTEM_PROMPT
 
-        # Формируем промпт в формате, подходящем для модели
-        # Структура промпта: системный промпт -> контекст -> вопрос -> генерация ответа
-        full_prompt = f"""{system_prompt}
-
-Контекст:
+        # Формируем сообщения в формате chat completion для instruct-модели
+        # Добавляем /no_think для отключения режима рассуждений Qwen3
+        user_message = f"""Контекст:
 {search_context}
 
-Вопрос: {query}
+Вопрос: {query}"""
 
-Ответ:"""
+        messages = [
+            {"role": "system", "content": system_prompt + "\n/no_think"},
+            {"role": "user", "content": user_message}
+        ]
 
         try:
-            # Генерация ответа с помощью llama-cpp с параметрами из конфигурации
-            response = self.model(
-                full_prompt,              # Полный промпт для модели
-                max_tokens=MAX_TOKENS,    # Максимальное количество токенов в ответе
-                temperature=TEMPERATURE,  # Температра генерации
-                top_p=TOP_P,              # Параметр top-p для генерации
-                repeat_penalty=REPEAT_PENALTY,  # Штраф за повторения
-                stop=["Вопрос:", "Контекст:", "</s>", "Ответ:"],  # Останавливаем на этих токенах
-                echo=False  # Не включаем промпт в вывод
+            # Генерация ответа с помощью llama-cpp create_chat_completion
+            # Метод автоматически применяет chat template модели
+            response = self.model.create_chat_completion(
+                messages=messages,
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+                top_p=TOP_P,
+                repeat_penalty=REPEAT_PENALTY,
             )
 
             # Извлечение сгенерированного текста из ответа модели
-            generated_text = response['choices'][0]['text'].strip()
+            generated_text = response['choices'][0]['message']['content'].strip()
+
+            # Убираем блок <think> из ответа (на случай если модель всё же сгенерировала рассуждения)
+            generated_text = re.sub(r'<think>.*?</think>', '', generated_text, flags=re.DOTALL).strip()
 
             # Расчет времени генерации
             generation_time = time.time() - start_time

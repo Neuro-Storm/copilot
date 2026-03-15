@@ -6,7 +6,7 @@
   },
   "model": {
     "path": "./models/Qwen_Qwen3-4B-Instruct-2507-Q5_K_L.gguf",
-    "n_ctx": 1024,
+    "n_ctx": 4096,
     "n_threads": 4,
     "n_gpu_layers": 0,
     "temperature": 0.7,
