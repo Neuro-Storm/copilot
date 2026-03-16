@@ -18,6 +18,8 @@ import json
 import sqlite3
 import grpc
 import logging
+import shutil
+import re
 from pathlib import Path
 from datetime import datetime
 from functools import wraps
@@ -74,6 +76,23 @@ except ImportError:
 
 # --- Конфигурация и Утилиты ---
 
+def safe_filename(filename):
+    """
+    Очистка имени файла от опасных символов.
+    Убирает путевые разделители, спецсимволы, ведущие точки.
+    Использует только re из стандартной библиотеки.
+    """
+    # Берём только имя файла (убираем путь)
+    filename = filename.replace('\\', '/').split('/')[-1]
+    # Убираем всё кроме букв, цифр, пробелов, точек, дефисов, подчёркиваний
+    filename = re.sub(r'[^\w\s\-.]', '', filename).strip()
+    # Пробелы → подчёркивания
+    filename = re.sub(r'\s+', '_', filename)
+    # Убираем ведущие точки (скрытые файлы в Linux)
+    filename = filename.lstrip('.')
+    return filename or 'unnamed'
+
+
 class Config:
     """
     Класс для управления конфигурацией приложения.
@@ -106,7 +125,9 @@ class Config:
             "converter_timeout": 60,
             "indexer_timeout": 120,
             "worker_shutdown_timeout": 5.0,
-            "queue_operation_timeout": 1
+            "queue_operation_timeout": 1,
+            "max_upload_size_mb": 100,
+            "allowed_extensions": [".pdf", ".docx", ".pptx", ".txt", ".html", ".htm", ".tif", ".tiff"]
         }
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -265,7 +286,7 @@ class FileManager:
         current_paths = set()
 
         # Убираем .md из списка поддерживаемых форматов, чтобы не обрабатывать конвертированные файлы
-        supported = {'.pdf', '.docx', '.pptx', '.txt', '.html', '.htm'}
+        supported = {'.pdf', '.docx', '.pptx', '.txt', '.html', '.htm', '.tif', '.tiff'}
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -691,6 +712,123 @@ class FileManager:
             self._invalidate_cache()
 
             return cursor.rowcount > 0
+
+    def list_subfolders(self):
+        """Список подпапок в files_dir для отображения в UI."""
+        subfolders = []
+        excluded = {'converted_md', '__pycache__', '.git'}
+
+        for dirpath, dirnames, _filenames in os.walk(self.files_dir):
+            # Исключаем служебные директории из дальнейшего обхода
+            dirnames[:] = [d for d in dirnames if d not in excluded]
+            rel_path = os.path.relpath(dirpath, self.files_dir)
+            if rel_path != '.':
+                subfolders.append(rel_path)
+
+        return sorted(subfolders)
+
+    def register_uploaded_file(self, filename, file_path):
+        """Регистрация загруженного файла в БД со статусом pending."""
+        validated_path = self.validate_file_path(file_path)
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # Проверяем дубликат — файл с таким путём уже может быть в БД
+            cursor.execute("SELECT id FROM files WHERE file_path = ?", (validated_path,))
+            if cursor.fetchone():
+                return False
+
+            cursor.execute(
+                "INSERT INTO files (filename, file_path, status, updated_at) "
+                "VALUES (?, ?, 'pending', CURRENT_TIMESTAMP)",
+                (filename, validated_path)
+            )
+            conn.commit()
+            self._invalidate_cache()
+            return True
+
+    def import_from_folder(self, source_dir, target_subfolder=""):
+        """
+        Рекурсивный импорт файлов из серверной папки в files_dir.
+        Сохраняет структуру подпапок источника.
+        """
+        supported = set(self._get_supported_extensions())
+        source_path = Path(source_dir).resolve()
+
+        if not source_path.exists():
+            raise ValueError(f"Папка не найдена: {source_dir}")
+        if not source_path.is_dir():
+            raise ValueError(f"Путь не является папкой: {source_dir}")
+
+        # Определяем целевую директорию
+        if target_subfolder:
+            clean_subfolder = Path(target_subfolder)
+            if '..' in clean_subfolder.parts:
+                raise ValueError("Недопустимый путь подпапки")
+            target_dir = Path(self.files_dir).resolve() / clean_subfolder
+        else:
+            target_dir = Path(self.files_dir).resolve()
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        result = {'copied': 0, 'skipped': 0, 'errors': 0, 'details': []}
+
+        # rglob('*') — рекурсивный обход всех вложенных папок
+        for p in source_path.rglob('*'):
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in supported:
+                result['skipped'] += 1
+                continue
+
+            try:
+                # relative_to — вычисляем путь относительно корня источника
+                rel_source = p.relative_to(source_path)
+                dest_file = target_dir / rel_source
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+                # Если файл уже существует — добавляем timestamp
+                if dest_file.exists():
+                    stem = dest_file.stem
+                    suffix = dest_file.suffix
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    dest_file = dest_file.parent / f"{stem}_{ts}{suffix}"
+
+                # copy2 сохраняет метаданные (время модификации)
+                shutil.copy2(str(p), str(dest_file))
+
+                registered = self.register_uploaded_file(
+                    dest_file.name, str(dest_file.resolve())
+                )
+                result['copied' if registered else 'skipped'] += 1
+                result['details'].append({
+                    'source': str(p),
+                    'dest': str(dest_file),
+                    'status': 'copied' if registered else 'already_registered'
+                })
+            except Exception as e:
+                result['errors'] += 1
+                result['details'].append({
+                    'source': str(p), 'error': str(e), 'status': 'error'
+                })
+
+        self._invalidate_cache()
+        return result
+
+    def _get_supported_extensions(self):
+        """Возвращает множество поддерживаемых расширений из конфигурации."""
+        # Берём из config.json, иначе используем список по умолчанию
+        try:
+            cfg_path = Path("config.json")
+            if cfg_path.exists():
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    exts = data.get('allowed_extensions')
+                    if exts:
+                        return set(exts)
+        except Exception:
+            pass
+        return {'.pdf', '.docx', '.pptx', '.txt', '.html', '.htm', '.tif', '.tiff'}
 
 # --- Основной класс ---
 
@@ -1177,6 +1315,7 @@ class Manager:
 manager_instance = Manager()
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
 
 @app.route('/api/stats')
 @handle_api_errors
@@ -1436,6 +1575,257 @@ def protected_api_manual_scan(current_user=None):
 
 # Для остальных эндпоинтов можно добавить опциональную аутентификацию или оставить без нее
 # в зависимости от требований безопасности
+
+
+@app.route('/api/subfolders')
+@handle_api_errors
+def api_subfolders():
+    """Список подпапок в files_dir."""
+    subfolders = manager_instance.fm.list_subfolders()
+    return jsonify({
+        'subfolders': subfolders,
+        'files_dir': str(manager_instance.fm.files_dir)
+    })
+
+
+@app.route('/api/create_subfolder', methods=['POST'])
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def api_create_subfolder(current_user=None):
+    """Создание подпапки в files_dir."""
+    data = request.get_json()
+    if not data or not data.get('subfolder', '').strip():
+        return jsonify({'error': 'Не указано имя подпапки'}), 400
+
+    subfolder_name = data['subfolder'].strip()
+    clean_path = Path(subfolder_name)
+    if '..' in clean_path.parts:
+        return jsonify({'error': 'Недопустимый путь'}), 400
+
+    target = Path(manager_instance.fm.files_dir).resolve() / clean_path
+    # Двойная проверка: и parts, и startswith
+    if not str(target).startswith(str(Path(manager_instance.fm.files_dir).resolve())):
+        return jsonify({'error': 'Путь выходит за пределы разрешённой директории'}), 400
+
+    target.mkdir(parents=True, exist_ok=True)
+    logger.info(f"[{current_user['username']}] Создана подпапка: {subfolder_name}")
+    return jsonify({'success': True, 'message': f'Подпапка создана: {subfolder_name}'})
+
+
+@app.route('/api/upload_batch', methods=['POST'])
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def api_upload_batch(current_user=None):
+    """
+    Пакетная загрузка файлов (папками).
+    Принимает multipart с files[] и JSON-массивом relative_paths.
+    """
+    files = request.files.getlist('files[]')
+    if not files:
+        return jsonify({'error': 'Файлы не переданы'}), 400
+
+    # relative_paths — массив путей из webkitRelativePath
+    relative_paths_json = request.form.get('relative_paths', '[]')
+    try:
+        relative_paths = json.loads(relative_paths_json)
+    except (json.JSONDecodeError, TypeError):
+        relative_paths = []
+
+    subfolder = request.form.get('subfolder', '').strip()
+
+    allowed_extensions = set(
+        manager_instance.cfg.get('allowed_extensions') or
+        ['.pdf', '.docx', '.pptx', '.txt', '.html', '.htm', '.tif', '.tiff']
+    )
+    max_size = (manager_instance.cfg.get('max_upload_size_mb') or 100) * 1024 * 1024
+    files_dir = Path(manager_instance.fm.files_dir).resolve()
+
+    # Базовая целевая директория
+    if subfolder:
+        clean_sub = Path(subfolder)
+        if '..' in clean_sub.parts:
+            return jsonify({'error': 'Недопустимый путь подпапки'}), 400
+        base_target = files_dir / clean_sub
+    else:
+        base_target = files_dir
+
+    base_target.mkdir(parents=True, exist_ok=True)
+
+    result = {'success': True, 'uploaded': 0, 'skipped': 0, 'errors': 0, 'details': []}
+
+    for idx, file in enumerate(files):
+        original_name = file.filename
+        if not original_name:
+            result['skipped'] += 1
+            continue
+
+        ext = os.path.splitext(original_name)[1].lower()
+        if ext not in allowed_extensions:
+            result['skipped'] += 1
+            result['details'].append({
+                'filename': original_name,
+                'status': 'skipped',
+                'reason': f'Неподдерживаемый формат: {ext}'
+            })
+            continue
+
+        # Проверка размера
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0)
+        if file_size > max_size:
+            result['skipped'] += 1
+            result['details'].append({
+                'filename': original_name,
+                'status': 'skipped',
+                'reason': f'Файл слишком большой: {file_size // (1024*1024)} МБ'
+            })
+            continue
+
+        try:
+            # Воссоздаём структуру подпапок из relative_paths
+            if idx < len(relative_paths) and relative_paths[idx]:
+                rel_parts = Path(relative_paths[idx])
+                if '..' in rel_parts.parts:
+                    raise ValueError('Недопустимый путь')
+                # relative_paths[idx] = "FolderName/sub/file.pdf"
+                # parts[:-1] = путь без имени файла
+                if len(rel_parts.parts) > 1:
+                    sub_structure = Path(*rel_parts.parts[:-1])
+                    target_dir = base_target / sub_structure
+                else:
+                    target_dir = base_target
+            else:
+                target_dir = base_target
+
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            clean_name = safe_filename(original_name)
+            if not clean_name or clean_name == 'unnamed':
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                clean_name = f"file_{ts}{ext}"
+
+            dest_path = target_dir / clean_name
+
+            # Конфликт имён — добавляем timestamp с микросекундами
+            if dest_path.exists():
+                stem = dest_path.stem
+                suffix = dest_path.suffix
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+                clean_name = f"{stem}_{ts}{suffix}"
+                dest_path = target_dir / clean_name
+
+            # Финальная проверка что путь внутри files_dir
+            if not str(dest_path.resolve()).startswith(str(files_dir)):
+                raise ValueError('Путь выходит за пределы разрешённой директории')
+
+            file.save(str(dest_path))
+
+            registered = manager_instance.fm.register_uploaded_file(
+                clean_name, str(dest_path.resolve())
+            )
+            result['uploaded'] += 1
+            result['details'].append({
+                'filename': clean_name,
+                'path': str(dest_path),
+                'status': 'uploaded',
+                'registered': registered
+            })
+        except Exception as e:
+            result['errors'] += 1
+            result['details'].append({
+                'filename': original_name,
+                'status': 'error',
+                'reason': str(e)
+            })
+
+    logger.info(
+        f"[{current_user['username']}] Пакетная загрузка: "
+        f"загружено={result['uploaded']}, пропущено={result['skipped']}, ошибок={result['errors']}"
+    )
+    return jsonify(result)
+
+
+@app.route('/api/import_folder', methods=['POST'])
+@require_role('admin', secret_key=AUTH_SECRET_KEY)
+def api_import_folder(current_user=None):
+    """Импорт файлов из папки на сервере (рекурсивно)."""
+    data = request.get_json()
+    if not data or not data.get('source_dir', '').strip():
+        return jsonify({'error': 'Не указан путь к папке'}), 400
+
+    source_dir = data['source_dir'].strip()
+    target_subfolder = data.get('target_subfolder', '').strip()
+
+    try:
+        result = manager_instance.fm.import_from_folder(source_dir, target_subfolder)
+        logger.info(
+            f"[{current_user['username']}] Импорт из {source_dir}: "
+            f"скопировано={result['copied']}, пропущено={result['skipped']}, ошибок={result['errors']}"
+        )
+        return jsonify({
+            'success': True,
+            'result': result,
+            'message': f"Скопировано: {result['copied']}, пропущено: {result['skipped']}, ошибок: {result['errors']}"
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/browse_server_folder')
+@require_role('admin', secret_key=AUTH_SECRET_KEY)
+def api_browse_server_folder(current_user=None):
+    """
+    Просмотр серверной папки для выбора источника импорта.
+    Только для admin — позволяет видеть файловую систему сервера.
+    """
+    folder_path = request.args.get('path', '/').strip()
+    supported = {'.pdf', '.docx', '.pptx', '.txt', '.html', '.htm', '.tif', '.tiff'}
+
+    try:
+        target = Path(folder_path).resolve()
+        if not target.exists() or not target.is_dir():
+            return jsonify({'error': 'Папка не найдена'}), 404
+
+        items = {
+            'current_path': str(target),
+            'parent_path': str(target.parent) if str(target) != '/' else None,
+            'folders': [],
+            'files': [],
+            'supported_count': 0
+        }
+
+        try:
+            for item in sorted(target.iterdir()):
+                if item.name.startswith('.'):
+                    continue
+
+                if item.is_dir():
+                    # Считаем файлы рекурсивно (rglob), не только первый уровень
+                    try:
+                        file_count = sum(
+                            1 for f in item.rglob('*')
+                            if f.is_file() and f.suffix.lower() in supported
+                        )
+                    except PermissionError:
+                        file_count = -1
+
+                    items['folders'].append({
+                        'name': item.name,
+                        'path': str(item),
+                        'file_count': file_count
+                    })
+                elif item.is_file() and item.suffix.lower() in supported:
+                    items['files'].append({
+                        'name': item.name,
+                        'size': item.stat().st_size,
+                        'modified': item.stat().st_mtime
+                    })
+                    items['supported_count'] += 1
+        except PermissionError:
+            return jsonify({'error': f'Нет доступа к папке: {folder_path}'}), 403
+
+        return jsonify(items)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # Добавляем эндпоинт проверки работоспособности

@@ -482,6 +482,119 @@ def manual_scan(current_user=None):
         logger.error(f"Ошибка при ручном сканировании: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/upload_batch', methods=['POST'])
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def upload_batch(current_user=None):
+    """Проксирование пакетной загрузки файлов в Manager API."""
+    try:
+        files = request.files.getlist('files[]')
+        if not files:
+            return jsonify({'error': 'Файлы не переданы'}), 400
+
+        relative_paths = request.form.get('relative_paths', '[]')
+        subfolder = request.form.get('subfolder', '')
+
+        logger.info(
+            f"[{current_user['username']}] Пакетная загрузка: "
+            f"{len(files)} файлов, подпапка: {subfolder}"
+        )
+
+        # Формируем multipart для проксирования
+        proxy_files = []
+        for f in files:
+            proxy_files.append(('files[]', (f.filename, f.stream, f.content_type)))
+
+        proxy_data = {
+            'relative_paths': relative_paths,
+            'subfolder': subfolder
+        }
+
+        url = get_api_url('/api/upload_batch')
+
+        # Передаём авторизацию
+        headers = {}
+        auth_cookie = request.cookies.get('auth_token')
+        if auth_cookie:
+            headers['Cookie'] = f'auth_token={auth_cookie}'
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            headers['Authorization'] = auth_header
+
+        response = requests.post(
+            url,
+            files=proxy_files,
+            data=proxy_data,
+            headers=headers,
+            timeout=300  # 5 минут для больших пакетов
+        )
+        return response.json(), response.status_code
+
+    except requests.exceptions.Timeout:
+        return jsonify({'error': 'Таймаут загрузки. Попробуйте меньше файлов.'}), 504
+    except Exception as e:
+        logger.error(f"Ошибка пакетной загрузки: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/import_folder', methods=['POST'])
+@require_role('admin', secret_key=AUTH_SECRET_KEY)
+def import_folder(current_user=None):
+    """Проксирование импорта из серверной папки."""
+    try:
+        data = request.get_json()
+        if not data or not data.get('source_dir', '').strip():
+            return jsonify({'error': 'Не указан путь к папке'}), 400
+
+        logger.info(
+            f"[{current_user['username']}] Импорт из папки: {data['source_dir']}"
+        )
+        response = make_request('POST', '/api/import_folder', use_cache=False, json=data)
+        return response.json(), response.status_code
+    except Exception as e:
+        logger.error(f"Ошибка импорта из папки: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/subfolders')
+def api_subfolders():
+    """Проксирование списка подпапок."""
+    try:
+        response = make_request('GET', '/api/subfolders')
+        if response.status_code == 200:
+            return response.content, 200, {'Content-Type': 'application/json'}
+        return jsonify({'error': 'Не удалось получить список подпапок'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/create_subfolder', methods=['POST'])
+@require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
+def create_subfolder(current_user=None):
+    """Проксирование создания подпапки."""
+    try:
+        data = request.get_json()
+        logger.info(f"[{current_user['username']}] Создание подпапки: {data.get('subfolder', '')}")
+        response = make_request('POST', '/api/create_subfolder', use_cache=False, json=data)
+        return response.json(), response.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/browse_server_folder')
+@require_role('admin', secret_key=AUTH_SECRET_KEY)
+def browse_server_folder(current_user=None):
+    """Проксирование просмотра серверных папок. Только admin."""
+    try:
+        folder_path = request.args.get('path', '/')
+        response = make_request('GET', '/api/browse_server_folder', params={'path': folder_path})
+        if response.status_code == 200:
+            return response.content, 200, {'Content-Type': 'application/json'}
+        return response.json(), response.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Создаем директории, если их нет
     Path('templates').mkdir(exist_ok=True)

@@ -9,5 +9,7 @@
   "converter_timeout": 900,
   "indexer_timeout": 120,
   "worker_shutdown_timeout": 5.0,
-  "queue_operation_timeout": 1
+  "queue_operation_timeout": 1,
+  "max_upload_size_mb": 100,
+  "allowed_extensions": [".pdf", ".docx", ".pptx", ".txt", ".html", ".htm", ".tif", ".tiff"]
 }

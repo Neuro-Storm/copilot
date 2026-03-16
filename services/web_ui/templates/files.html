@@ -8,6 +8,157 @@
     </div>
 </div>
 
+<!-- Пакетная загрузка + Импорт с сервера -->
+<div class="row mb-4">
+
+    <!-- Загрузка папки через браузер -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-folder-open"></i> Загрузка папки</h5>
+            </div>
+            <div class="card-body">
+
+                <!-- Выбор целевой подпапки -->
+                <div class="mb-3">
+                    <label class="form-label">Сохранить в подпапку</label>
+                    <div class="input-group">
+                        <select id="upload-subfolder" class="form-select">
+                            <option value="">/ (корневая)</option>
+                        </select>
+                        <button class="btn btn-outline-secondary" type="button"
+                                onclick="showCreateSubfolder()" title="Создать подпапку">
+                            <i class="fas fa-folder-plus"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Скрытая форма создания подпапки -->
+                <div id="create-subfolder-form" class="mb-3" style="display:none;">
+                    <div class="input-group">
+                        <input type="text" id="new-subfolder-name" class="form-control"
+                               placeholder="Имя новой подпапки...">
+                        <button class="btn btn-success btn-sm" onclick="createSubfolder()">Создать</button>
+                        <button class="btn btn-outline-secondary btn-sm"
+                                onclick="hideCreateSubfolder()">Отмена</button>
+                    </div>
+                </div>
+
+                <!-- Зона drag-and-drop -->
+                <div id="drop-zone" class="border border-2 rounded p-4 text-center mb-3"
+                     style="border-style:dashed !important; cursor:pointer; transition:all 0.2s;"
+                     ondragover="handleDragOver(event)"
+                     ondragleave="handleDragLeave(event)"
+                     ondrop="handleDrop(event)"
+                     onclick="document.getElementById('folder-input').click()">
+                    <i class="fas fa-folder-open fa-2x text-muted mb-2 d-block"></i>
+                    <p class="mb-1"><strong>Перетащите папку</strong> сюда или нажмите для выбора</p>
+                    <small class="text-muted">
+                        PDF, DOCX, PPTX, TXT, HTML, TIFF &bull; макс. 100 МБ / файл
+                    </small>
+                </div>
+
+                <!-- Выбор папки (webkitdirectory) и отдельных файлов -->
+                <div class="text-center mb-3">
+                    <button class="btn btn-sm btn-outline-secondary"
+                            onclick="document.getElementById('files-input').click()">
+                        <i class="fas fa-file-upload"></i> Или выбрать файлы
+                    </button>
+                    <input type="file" id="files-input" style="display:none"
+                           accept=".pdf,.docx,.pptx,.txt,.html,.htm,.tif,.tiff" multiple
+                           onchange="handleFilesSelect(this.files)">
+                </div>
+                <input type="file" id="folder-input" style="display:none"
+                       webkitdirectory directory multiple
+                       onchange="handleFolderSelect(this.files)">
+
+                <!-- Список собранных файлов -->
+                <div id="upload-file-list" style="display:none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0" id="upload-summary"></h6>
+                        <button class="btn btn-sm btn-outline-danger"
+                                onclick="clearPendingFiles()">Очистить</button>
+                    </div>
+                    <div id="upload-items" style="max-height:200px; overflow-y:auto;"></div>
+                </div>
+
+                <!-- Кнопка и прогресс -->
+                <button id="upload-btn" class="btn btn-primary w-100 mt-3"
+                        style="display:none" onclick="uploadBatch()">
+                    <i class="fas fa-upload"></i> Загрузить всё
+                </button>
+                <div id="upload-progress" class="mt-3" style="display:none;">
+                    <div class="progress">
+                        <div id="upload-progress-bar"
+                             class="progress-bar progress-bar-striped progress-bar-animated"
+                             style="width:0%">0%</div>
+                    </div>
+                    <small id="upload-status" class="text-muted mt-1 d-block"></small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Импорт из серверной папки -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-server"></i> Импорт из папки на сервере</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Папка-источник на сервере</label>
+                    <div class="input-group">
+                        <input type="text" id="import-source-dir" class="form-control"
+                               placeholder="/home/user/documents">
+                        <button class="btn btn-outline-secondary"
+                                onclick="browseServerFolder('/')">
+                            <i class="fas fa-search"></i> Обзор
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Браузер серверных папок -->
+                <div id="folder-browser" class="mb-3" style="display:none;">
+                    <div class="card bg-light">
+                        <div class="card-header py-2 d-flex justify-content-between">
+                            <small class="fw-bold text-truncate" id="browser-current-path"
+                                   style="max-width:300px">/</small>
+                            <button class="btn btn-sm btn-outline-secondary py-0"
+                                    onclick="closeFolderBrowser()">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="card-body p-2" style="max-height:250px; overflow-y:auto;">
+                            <div id="browser-items"></div>
+                        </div>
+                        <div class="card-footer py-2 d-flex justify-content-between">
+                            <button class="btn btn-sm btn-primary" onclick="selectCurrentFolder()">
+                                <i class="fas fa-check"></i> Выбрать эту папку
+                            </button>
+                            <span id="browser-file-count" class="text-muted small"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Куда сохранить (подпапка)</label>
+                    <select id="import-target-subfolder" class="form-select">
+                        <option value="">/ (корневая)</option>
+                    </select>
+                </div>
+
+                <button id="import-btn" class="btn btn-warning w-100" onclick="importFromFolder()">
+                    <i class="fas fa-file-import"></i> Импортировать
+                </button>
+                <div id="import-result" class="mt-3" style="display:none;">
+                    <div id="import-result-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row mb-4">
     <div class="col-md-12">
         <div class="card">
@@ -142,6 +293,420 @@
 </div>
 
 <script>
+/* ========== Подпапки ========== */
+
+function loadSubfolders() {
+    $.ajax({
+        url: '/api/subfolders',
+        success: function(data) {
+            var html = '<option value="">/ (корневая)</option>';
+            (data.subfolders || []).forEach(function(sf) {
+                html += '<option value="' + sf + '">' + sf + '</option>';
+            });
+            $('#upload-subfolder').html(html);
+            $('#import-target-subfolder').html(html);
+        }
+    });
+}
+
+function showCreateSubfolder() {
+    $('#create-subfolder-form').show();
+    $('#new-subfolder-name').focus();
+}
+function hideCreateSubfolder() {
+    $('#create-subfolder-form').hide();
+    $('#new-subfolder-name').val('');
+}
+
+function createSubfolder() {
+    var name = $('#new-subfolder-name').val().trim();
+    if (!name) { alert('Введите имя подпапки'); return; }
+    $.ajax({
+        url: '/api/create_subfolder',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ subfolder: name }),
+        success: function(data) {
+            if (data.success) {
+                hideCreateSubfolder();
+                loadSubfolders();
+                setTimeout(function() { $('#upload-subfolder').val(name); }, 500);
+            } else { alert('Ошибка: ' + (data.error || '')); }
+        },
+        error: function(xhr) {
+            try { alert(JSON.parse(xhr.responseText).error); }
+            catch(e) { alert('Ошибка создания подпапки'); }
+        }
+    });
+}
+
+
+/* ========== Пакетная загрузка ========== */
+
+var ALLOWED_EXT = ['.pdf','.docx','.pptx','.txt','.html','.htm','.tif','.tiff'];
+var MAX_FILE_SIZE = 100 * 1024 * 1024;
+var pendingFiles = [];  // [{file: File, relativePath: "Folder/sub/file.pdf"}, ...]
+
+// Выбор папки через input[webkitdirectory]
+function handleFolderSelect(fileList) {
+    addFilesFromList(fileList, true);
+    document.getElementById('folder-input').value = '';
+}
+
+// Выбор отдельных файлов
+function handleFilesSelect(fileList) {
+    addFilesFromList(fileList, false);
+    document.getElementById('files-input').value = '';
+}
+
+// Drag-and-drop
+function handleDragOver(e) {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.style.borderColor = '#007bff';
+    e.currentTarget.style.backgroundColor = 'rgba(0,123,255,0.05)';
+}
+function handleDragLeave(e) {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.style.borderColor = '';
+    e.currentTarget.style.backgroundColor = '';
+}
+function handleDrop(e) {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.style.borderColor = '';
+    e.currentTarget.style.backgroundColor = '';
+
+    // webkitGetAsEntry позволяет рекурсивно читать папки при drag-and-drop
+    var items = e.dataTransfer.items;
+    if (items && items.length > 0 && items[0].webkitGetAsEntry) {
+        var entries = [];
+        for (var i = 0; i < items.length; i++) {
+            var entry = items[i].webkitGetAsEntry();
+            if (entry) entries.push(entry);
+        }
+        readEntriesRecursive(entries, '');
+    } else {
+        addFilesFromList(e.dataTransfer.files, true);
+    }
+}
+
+/**
+ * Рекурсивное чтение содержимого папок через File System API.
+ * Важно: readEntries() может вернуть результаты порциями,
+ * поэтому вызываем повторно пока не получим пустой массив.
+ */
+function readEntriesRecursive(entries, basePath) {
+    entries.forEach(function(entry) {
+        if (entry.isFile) {
+            entry.file(function(file) {
+                var relPath = basePath ? basePath + '/' + file.name : file.name;
+                addSingleFile(file, relPath);
+                renderPendingFiles();
+            });
+        } else if (entry.isDirectory) {
+            var reader = entry.createReader();
+            var dirPath = basePath ? basePath + '/' + entry.name : entry.name;
+            var allEntries = [];
+
+            // readEntries может вернуть не все записи за раз (лимит ~100)
+            // поэтому вызываем повторно, пока не придёт пустой массив
+            function readAll() {
+                reader.readEntries(function(batch) {
+                    if (batch.length > 0) {
+                        allEntries = allEntries.concat(Array.from(batch));
+                        readAll();  // повторный вызов — могут быть ещё записи
+                    } else {
+                        readEntriesRecursive(allEntries, dirPath);
+                    }
+                });
+            }
+            readAll();
+        }
+    });
+}
+
+function addFilesFromList(fileList, useRelativePath) {
+    for (var i = 0; i < fileList.length; i++) {
+        var file = fileList[i];
+        var relPath = useRelativePath
+            ? (file.webkitRelativePath || file.name)
+            : file.name;
+        addSingleFile(file, relPath);
+    }
+    renderPendingFiles();
+}
+
+function addSingleFile(file, relativePath) {
+    var ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (ALLOWED_EXT.indexOf(ext) === -1) return;  // фильтр расширений
+    if (file.size > MAX_FILE_SIZE) return;         // фильтр размера
+    if (file.name.startsWith('.')) return;          // пропуск скрытых файлов
+
+    // Дедупликация по пути + размеру
+    var isDup = pendingFiles.some(function(pf) {
+        return pf.relativePath === relativePath && pf.file.size === file.size;
+    });
+    if (!isDup) {
+        pendingFiles.push({ file: file, relativePath: relativePath });
+    }
+}
+
+function renderPendingFiles() {
+    if (pendingFiles.length === 0) {
+        $('#upload-file-list, #upload-btn').hide();
+        return;
+    }
+
+    // Группировка по папкам
+    var folders = {};
+    pendingFiles.forEach(function(pf) {
+        var parts = pf.relativePath.split('/');
+        var folder = parts.length > 1 ? parts.slice(0, -1).join('/') : '/';
+        if (!folders[folder]) folders[folder] = [];
+        folders[folder].push(pf);
+    });
+
+    var html = '';
+    Object.keys(folders).sort().forEach(function(folder) {
+        var files = folders[folder];
+        if (folder !== '/') {
+            html += '<div class="fw-bold small text-primary mt-2 mb-1">' +
+                    '<i class="fas fa-folder me-1"></i>' + folder +
+                    ' <span class="badge bg-secondary">' + files.length + '</span></div>';
+        }
+        files.forEach(function(pf) {
+            var size = pf.file.size < 1048576
+                ? (pf.file.size / 1024).toFixed(0) + ' КБ'
+                : (pf.file.size / 1048576).toFixed(1) + ' МБ';
+            var gi = pendingFiles.indexOf(pf);
+            html += '<div class="d-flex justify-content-between py-1 ps-3 border-bottom">' +
+                    '<span class="small text-truncate" style="max-width:80%">' +
+                    '<i class="fas fa-file text-muted me-1"></i>' + pf.file.name +
+                    ' <span class="text-muted">(' + size + ')</span></span>' +
+                    '<button class="btn btn-sm btn-outline-danger py-0 px-1" ' +
+                    'onclick="removePendingFile(' + gi + ')">' +
+                    '<i class="fas fa-times"></i></button></div>';
+        });
+    });
+
+    var total = pendingFiles.reduce(function(s, pf) { return s + pf.file.size; }, 0);
+    var totalStr = total < 1048576
+        ? (total / 1024).toFixed(0) + ' КБ'
+        : (total / 1048576).toFixed(1) + ' МБ';
+
+    $('#upload-summary').text(pendingFiles.length + ' файлов (' + totalStr + ')');
+    $('#upload-items').html(html);
+    $('#upload-file-list').show();
+    $('#upload-btn').show().html(
+        '<i class="fas fa-upload"></i> Загрузить ' + pendingFiles.length + ' файлов'
+    );
+}
+
+function removePendingFile(idx) { pendingFiles.splice(idx, 1); renderPendingFiles(); }
+function clearPendingFiles() { pendingFiles = []; renderPendingFiles(); }
+
+
+/* Отправка пакетами по 20 файлов */
+
+function uploadBatch() {
+    if (pendingFiles.length === 0) return;
+
+    var subfolder = $('#upload-subfolder').val();
+    var BATCH_SIZE = 20;
+    var batches = [];
+    for (var i = 0; i < pendingFiles.length; i += BATCH_SIZE) {
+        batches.push(pendingFiles.slice(i, i + BATCH_SIZE));
+    }
+
+    var totalFiles = pendingFiles.length;
+    var uploaded = 0, errors = 0, batchIdx = 0;
+    $('#upload-btn').prop('disabled', true);
+    $('#upload-progress').show();
+
+    function sendNextBatch() {
+        if (batchIdx >= batches.length) {
+            $('#upload-progress-bar').css('width', '100%').text('100%');
+            var msg = '<span class="text-success">Загружено: ' + uploaded + '</span>';
+            if (errors > 0) msg += ', <span class="text-danger">ошибок: ' + errors + '</span>';
+            $('#upload-status').html(msg);
+            $('#upload-btn').prop('disabled', false);
+            clearPendingFiles();
+            setTimeout(function() {
+                if (typeof updateAllFiles === 'function') updateAllFiles();
+                else if (typeof updateFiles === 'function') updateFiles();
+                loadSubfolders();
+            }, 1000);
+            setTimeout(function() { $('#upload-progress').fadeOut(); }, 4000);
+            return;
+        }
+
+        var batch = batches[batchIdx];
+        var formData = new FormData();
+        var relativePaths = [];
+
+        batch.forEach(function(pf) {
+            formData.append('files[]', pf.file, pf.file.name);
+            relativePaths.push(pf.relativePath);
+        });
+        formData.append('relative_paths', JSON.stringify(relativePaths));
+        formData.append('subfolder', subfolder);
+
+        var pct = Math.round((uploaded / totalFiles) * 100);
+        $('#upload-progress-bar').css('width', pct + '%').text(pct + '%');
+        $('#upload-status').text(
+            'Пакет ' + (batchIdx+1) + '/' + batches.length +
+            ' (' + uploaded + '/' + totalFiles + ')'
+        );
+
+        $.ajax({
+            url: '/upload_batch',
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            timeout: 300000,
+            success: function(data) {
+                uploaded += (data.uploaded || 0);
+                errors += (data.errors || 0);
+                batchIdx++;
+                sendNextBatch();
+            },
+            error: function() {
+                errors += batch.length;
+                batchIdx++;
+                sendNextBatch();
+            }
+        });
+    }
+    sendNextBatch();
+}
+
+
+/* ========== Импорт из серверной папки ========== */
+
+var currentBrowserPath = '/';
+
+function browseServerFolder(path) {
+    currentBrowserPath = path;
+    $.ajax({
+        url: '/api/browse_server_folder',
+        data: { path: path },
+        success: function(data) {
+            $('#folder-browser').show();
+            $('#browser-current-path').text(data.current_path);
+
+            var html = '';
+            if (data.parent_path) {
+                html += '<div class="browser-item px-2 py-1 rounded" style="cursor:pointer" ' +
+                    'onclick="browseServerFolder(\'' + esc(data.parent_path) + '\')">' +
+                    '<i class="fas fa-level-up-alt text-muted me-2"></i>..</div>';
+            }
+
+            (data.folders || []).forEach(function(f) {
+                var badge = f.file_count >= 0
+                    ? '<span class="badge bg-secondary ms-2">' + f.file_count + '</span>'
+                    : '<span class="badge bg-warning ms-2">нет доступа</span>';
+                html += '<div class="browser-item px-2 py-1 rounded d-flex justify-content-between" ' +
+                    'style="cursor:pointer" onclick="browseServerFolder(\'' + esc(f.path) + '\')">' +
+                    '<span class="text-truncate"><i class="fas fa-folder text-warning me-2"></i>' +
+                    f.name + '</span>' + badge + '</div>';
+            });
+
+            (data.files || []).forEach(function(f) {
+                var size = f.size < 1048576
+                    ? (f.size / 1024).toFixed(0) + ' КБ'
+                    : (f.size / 1048576).toFixed(1) + ' МБ';
+                html += '<div class="browser-item px-2 py-1 rounded d-flex justify-content-between">' +
+                    '<span class="text-truncate"><i class="fas fa-file text-info me-2"></i>' +
+                    f.name + '</span><small class="text-muted ms-2">' + size + '</small></div>';
+            });
+
+            if (!data.folders.length && !data.files.length) {
+                html += '<div class="text-muted text-center py-3">Пусто</div>';
+            }
+
+            $('#browser-items').html(html);
+            $('#browser-file-count').text(
+                data.supported_count > 0
+                    ? data.supported_count + ' подходящих файлов (рекурсивно)'
+                    : 'Нет подходящих файлов'
+            );
+        },
+        error: function(xhr) {
+            try { alert(JSON.parse(xhr.responseText).error); }
+            catch(e) { alert('Ошибка при обзоре папки'); }
+        }
+    });
+}
+
+function selectCurrentFolder() {
+    $('#import-source-dir').val(currentBrowserPath);
+    closeFolderBrowser();
+}
+function closeFolderBrowser() { $('#folder-browser').hide(); }
+function esc(s) { return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+
+function importFromFolder() {
+    var src = $('#import-source-dir').val().trim();
+    if (!src) { alert('Укажите путь к папке-источнику'); return; }
+    var tgt = $('#import-target-subfolder').val();
+    if (!confirm('Импортировать файлы рекурсивно из:\n' + src +
+        (tgt ? '\n\nВ подпапку: ' + tgt : '\n\nВ корневую папку') + '?')) return;
+
+    $('#import-btn').prop('disabled', true)
+        .html('<i class="fas fa-spinner fa-spin"></i> Импорт...');
+    $('#import-result').hide();
+
+    $.ajax({
+        url: '/import_folder',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ source_dir: src, target_subfolder: tgt }),
+        timeout: 600000,
+        success: function(data) {
+            $('#import-btn').prop('disabled', false)
+                .html('<i class="fas fa-file-import"></i> Импортировать');
+            if (data.success) {
+                var r = data.result;
+                var cls = r.errors > 0 ? 'warning' : 'success';
+                var h = '<div class="alert alert-' + cls + '">';
+                h += '<strong>Результат (рекурсивно):</strong> ';
+                h += 'скопировано ' + r.copied + ', пропущено ' + r.skipped;
+                if (r.errors > 0) h += ', ошибок ' + r.errors;
+                h += '</div>';
+                $('#import-result-content').html(h);
+                $('#import-result').show();
+                setTimeout(function() {
+                    if (typeof updateAllFiles === 'function') updateAllFiles();
+                    else if (typeof updateFiles === 'function') updateFiles();
+                    loadSubfolders();
+                }, 1000);
+            }
+        },
+        error: function(xhr) {
+            $('#import-btn').prop('disabled', false)
+                .html('<i class="fas fa-file-import"></i> Импортировать');
+            try {
+                $('#import-result-content').html(
+                    '<div class="alert alert-danger">' + JSON.parse(xhr.responseText).error + '</div>'
+                );
+            } catch(e) {
+                $('#import-result-content').html('<div class="alert alert-danger">Ошибка импорта</div>');
+            }
+            $('#import-result').show();
+        }
+    });
+}
+
+// Hover-стиль для элементов браузера
+(function() {
+    var s = document.createElement('style');
+    s.textContent = '.browser-item:hover{background:rgba(0,123,255,.08)}';
+    document.head.appendChild(s);
+})();
+
+// Загрузка подпапок при открытии страницы
+$(document).ready(function() { loadSubfolders(); });
+
 $(document).ready(function() {
     // Обработка формы фильтрации
     $('#filter-form').on('submit', function(e) {
