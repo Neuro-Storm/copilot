@@ -8,7 +8,7 @@
 - Предоставление HTTP API для мониторинга и управления
 - Обеспечение безопасности через валидацию путей и токенную авторизацию
 
-Поддерживаемые форматы файлов: PDF, DOCX, PPTX, TXT, HTML, HTM, MD
+Поддерживаемые форматы файлов: PDF, DOCX, PPTX, TXT, HTML, HTM, TIF, TIFF, MD
 """
 
 import os
@@ -1592,23 +1592,27 @@ def api_subfolders():
 @require_role('admin', 'user', secret_key=AUTH_SECRET_KEY)
 def api_create_subfolder(current_user=None):
     """Создание подпапки в files_dir."""
-    data = request.get_json()
-    if not data or not data.get('subfolder', '').strip():
-        return jsonify({'error': 'Не указано имя подпапки'}), 400
+    try:
+        data = request.get_json()
+        if not data or not data.get('subfolder', '').strip():
+            return jsonify({'error': 'Не указано имя подпапки'}), 400
 
-    subfolder_name = data['subfolder'].strip()
-    clean_path = Path(subfolder_name)
-    if '..' in clean_path.parts:
-        return jsonify({'error': 'Недопустимый путь'}), 400
+        subfolder_name = data['subfolder'].strip()
+        clean_path = Path(subfolder_name)
+        if '..' in clean_path.parts:
+            return jsonify({'error': 'Недопустимый путь'}), 400
 
-    target = Path(manager_instance.fm.files_dir).resolve() / clean_path
-    # Двойная проверка: и parts, и startswith
-    if not str(target).startswith(str(Path(manager_instance.fm.files_dir).resolve())):
-        return jsonify({'error': 'Путь выходит за пределы разрешённой директории'}), 400
+        target = Path(manager_instance.fm.files_dir).resolve() / clean_path
+        # Двойная проверка: и parts, и startswith
+        if not str(target).startswith(str(Path(manager_instance.fm.files_dir).resolve())):
+            return jsonify({'error': 'Путь выходит за пределы разрешённой директории'}), 400
 
-    target.mkdir(parents=True, exist_ok=True)
-    logger.info(f"[{current_user['username']}] Создана подпапка: {subfolder_name}")
-    return jsonify({'success': True, 'message': f'Подпапка создана: {subfolder_name}'})
+        target.mkdir(parents=True, exist_ok=True)
+        logger.info(f"[{current_user['username']}] Создана подпапка: {subfolder_name}")
+        return jsonify({'success': True, 'message': f'Подпапка создана: {subfolder_name}'})
+    except Exception as e:
+        logger.error(f"Ошибка при создании подпапки: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/upload_batch', methods=['POST'])
