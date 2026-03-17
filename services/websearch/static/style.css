@@ -107,4 +107,7 @@ body {
     margin-bottom: 8px;
     padding-bottom: 5px;
     border-bottom: 1px solid #eee;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
 }
