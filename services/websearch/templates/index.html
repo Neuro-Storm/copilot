@@ -221,12 +221,12 @@
 
                         // Кнопка для переключения дополнительной информации
                         const toggleButton = document.createElement('button');
-                        toggleButton.className = 'btn btn-sm btn-outline-info metadata-toggle';
+                        toggleButton.className = 'btn btn-xs btn-outline-info metadata-toggle';
                         toggleButton.type = 'button';
                         toggleButton.setAttribute('data-bs-toggle', 'collapse');
                         toggleButton.setAttribute('data-bs-target', `#${metadataId}`);
                         toggleButton.setAttribute('aria-expanded', 'false');
-                        toggleButton.textContent = 'Дополнительная информация';
+                        toggleButton.textContent = 'Доп. информация';
 
                         // Контейнер для дополнительных метаданных
                         const collapseDiv = document.createElement('div');
