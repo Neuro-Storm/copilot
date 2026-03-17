@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request, redirect, url_for, g
 from flask_cors import CORS
 import logging
 from functools import wraps
@@ -65,6 +65,39 @@ MAIN_SERVICE_URL = os.getenv('MAIN_SERVICE_URL', 'http://localhost:5001')
 # Позволяет JavaScript-коду на веб-страницах делать запросы к этому сервису
 # из других доменов, что необходимо для работы AJAX-запросов
 CORS(app)
+
+
+@app.before_request
+def enforce_auth():
+    """Проверка авторизации перед каждым запросом."""
+    # Пропускаем публичные маршруты
+    if request.path in ('/login', '/health'):
+        return None
+    if request.path.startswith('/static/'):
+        return None
+
+    token = request.cookies.get('access_token')
+    if not token:
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+
+    if not token:
+        if 'text/html' in request.headers.get('Accept', ''):
+            return redirect('/login')
+        return jsonify({'error': 'Требуется авторизация'}), 401
+
+    try:
+        from tokens import verify_token
+        payload = verify_token(token, AUTH_SECRET_KEY)
+    except ValueError:
+        if 'text/html' in request.headers.get('Accept', ''):
+            return redirect('/login')
+        return jsonify({'error': 'Токен недействителен'}), 401
+
+    if payload.get('role') not in ('admin', 'user', 'viewer'):
+        return jsonify({'error': 'Недостаточно прав'}), 403
+
 
 def get_api_url(endpoint):
     """Формирует полный URL для вызова API основного сервиса.
@@ -140,6 +173,16 @@ def make_request(method, endpoint, use_cache=True, **kwargs):
     """
     url = get_api_url(endpoint)
 
+    # Пробрасываем токен авторизации в Manager API
+    if 'headers' not in kwargs:
+        kwargs['headers'] = {}
+    try:
+        token = request.cookies.get('access_token')
+        if token:
+            kwargs['headers']['Authorization'] = f'Bearer {token}'
+    except RuntimeError:
+        pass  # Вне контекста запроса (например, при старте)
+
     # Генерируем ключ кэша для GET-запросов
     cache_key = None
     if method.upper() == 'GET' and use_cache:
@@ -160,7 +203,7 @@ def make_request(method, endpoint, use_cache=True, **kwargs):
                     'status_code': cached_response.get('status_code', 200),
                     'content': cached_response.get('content', b''),
                     'headers': cached_response.get('headers', {}),
-                    'json': lambda: cached_response.get('json_data', {})
+                    'json': lambda _=None: cached_response.get('json_data', {})
                 })()
                 return response
 
@@ -220,19 +263,23 @@ def index():
     try:
         # Получаем статистику по файлам из основного сервиса
         stats_response = make_request('GET', '/api/stats')
-        stats = stats_response.json() if stats_response.status_code == 200 else {'total_files': 0, 'status_counts': {}, 'last_update': None}
+        stats_data = stats_response.json() if stats_response.status_code == 200 else None
+        stats = stats_data if isinstance(stats_data, dict) else {'total_files': 0, 'status_counts': {}, 'last_update': None}
 
         # Получаем последние файлы из основного сервиса
         files_response = make_request('GET', '/api/files?limit=10')
-        files = files_response.json()['files'] if files_response.status_code == 200 else []
+        files_data = files_response.json() if files_response.status_code == 200 else None
+        files = files_data.get('files', []) if isinstance(files_data, dict) else []
 
         # Получаем статус сервиса
         status_response = make_request('GET', '/api/status')
-        is_running = status_response.json().get('running', False) if status_response.status_code == 200 else False
+        status_data = status_response.json() if status_response.status_code == 200 else None
+        is_running = status_data.get('running', False) if isinstance(status_data, dict) else False
 
         # Получаем конфигурацию (без чувствительных данных)
         config_response = make_request('GET', '/api/config')
-        cfg = config_response.json() if config_response.status_code == 200 else {}
+        config_data = config_response.json() if config_response.status_code == 200 else None
+        cfg = config_data if isinstance(config_data, dict) else {}
 
         return render_template('index.html',
                                stats=stats,
@@ -241,7 +288,7 @@ def index():
                                cfg=cfg,
                                year=datetime.now().year)
     except Exception as e:
-        logger.error(f"Ошибка на главной странице: {e}")
+        logger.error(f"Ошибка на главной странице: {e}", exc_info=True)
         return f"Ошибка: {e}", 500
 
 @app.route('/login')
@@ -251,20 +298,7 @@ def login():
 
 @app.route('/files')
 def files_page():
-    """Страница со списком всех файлов с возможностью фильтрации и пагинации.
-
-    Отображает таблицу файлов с фильтрами по статусу, пагинацией и возможностью
-    повторной обработки или удаления файлов. Поддерживает фильтрацию по статусу
-    и настраиваемое количество элементов на странице.
-
-    Query Parameters:
-        page (int): Номер страницы для пагинации (по умолчанию 1)
-        limit (int): Количество файлов на странице (по умолчанию 50)
-        status (str): Фильтр по статусу файла (необязательный)
-
-    Returns:
-        HTML-страница files.html со списком файлов
-    """
+    """Страница со списком файлов."""
     try:
         page = int(request.args.get('page', 1))
         limit = int(request.args.get('limit', 50))
@@ -276,20 +310,36 @@ def files_page():
             'status': status_filter
         }
 
-        files_response = make_request('GET', '/api/files', params=params)
-        response_data = files_response.json() if files_response.status_code == 200 else {'files': [], 'pagination': {}}
+        # Получаем файлы — защита от None на каждом шагу
+        files = []
+        pagination = {}
+        total_pages = 1
+        total_count = 0
 
-        files = response_data.get('files', [])
-        pagination = response_data.get('pagination', {})
-        total_pages = pagination.get('total_pages', 1)
-        total_count = pagination.get('total_count', 0)
+        try:
+            files_response = make_request('GET', '/api/files', params=params)
+            if files_response and files_response.status_code == 200:
+                response_data = files_response.json()
+                if isinstance(response_data, dict):
+                    files = response_data.get('files', []) or []
+                    pagination = response_data.get('pagination', {}) or {}
+                    total_pages = pagination.get('total_pages', 1) or 1
+                    total_count = pagination.get('total_count', 0) or 0
+        except Exception as e:
+            logger.error(f"Ошибка получения файлов: {e}")
 
-        # Получаем уникальные статусы для фильтра
-        stats_response = make_request('GET', '/api/stats')
+        # Получаем статусы для фильтра
         statuses = []
-        if stats_response.status_code == 200:
-            stats_data = stats_response.json()
-            statuses = list(stats_data.get('status_counts', {}).keys())
+        try:
+            stats_response = make_request('GET', '/api/stats')
+            if stats_response and stats_response.status_code == 200:
+                stats_data = stats_response.json()
+                if isinstance(stats_data, dict):
+                    status_counts = stats_data.get('status_counts', {})
+                    if isinstance(status_counts, dict):
+                        statuses = list(status_counts.keys())
+        except Exception as e:
+            logger.error(f"Ошибка получения статусов: {e}")
 
         return render_template('files.html',
                              files=files,
@@ -298,7 +348,7 @@ def files_page():
                              total_count=total_count,
                              statuses=statuses)
     except Exception as e:
-        logger.error(f"Ошибка на странице файлов: {e}")
+        logger.error(f"Ошибка на странице файлов: {e}", exc_info=True)
         return f"Ошибка: {e}", 500
 
 @app.route('/api/files')
@@ -514,13 +564,11 @@ def upload_batch(current_user=None):
 
         # Передаём авторизацию
         headers = {}
-        auth_cookie = request.cookies.get('auth_token')
-        if auth_cookie:
-            headers['Cookie'] = f'auth_token={auth_cookie}'
-        auth_header = request.headers.get('Authorization')
-        if auth_header:
-            headers['Authorization'] = auth_header
+        token = request.cookies.get('access_token')
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
 
+        logger.info(f"Отправка в Manager: {url}, токен: {bool(token)}")
         response = requests.post(
             url,
             files=proxy_files,
@@ -528,6 +576,7 @@ def upload_batch(current_user=None):
             headers=headers,
             timeout=300  # 5 минут для больших пакетов
         )
+        logger.info(f"Ответ Manager: {response.status_code} {response.text[:200]}")
         return response.json(), response.status_code
 
     except requests.exceptions.Timeout:

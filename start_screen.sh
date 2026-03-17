@@ -30,7 +30,7 @@ SERVICES_DIR="$SCRIPT_DIR/services"
 PREFIX="rag"
 
 # Путь к Python (можно заменить на путь к venv)
-PYTHON="${PYTHON:-python3}"
+PYTHON="${PYTHON:-python3.12}"
 
 # Пауза между запусками сервисов (секунды)
 DELAY=2

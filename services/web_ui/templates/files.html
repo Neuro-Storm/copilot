@@ -235,7 +235,7 @@
                             <tr class="file-row">
                                 <td>{{ file.id }}</td>
                                 <td title="{{ file.filename }}">{{ file.filename[:30] }}{% if file.filename|length > 30 %}...{% endif %}</td>
-                                <td title="{{ file.file_path }}"><small>{{ file.file_path[:50] }}{% if file.file_path|length > 50 %}...{% endif %}</small></td>
+                                <td title="{{ file.file_path or '' }}"><small>{{ (file.file_path or '-')[:50] }}{% if (file.file_path or '')|length > 50 %}...{% endif %}</small></td>
                                 <td>{% if file.md_path %}<small>{{ file.md_path[:50] }}{% if file.md_path|length > 50 %}...{% endif %}</small>{% else %}-{% endif %}</td>
                                 <td><span class="badge {{ status_class }} status-badge">{{ file.status }}</span></td>
                                 <td>
@@ -326,6 +326,9 @@ function createSubfolder() {
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({ subfolder: name }),
+        xhrFields: {
+            withCredentials: true
+        },
         success: function(data) {
             if (data.success) {
                 hideCreateSubfolder();
@@ -563,6 +566,9 @@ function uploadBatch() {
             data: formData,
             processData: false,
             contentType: false,
+            xhrFields: {
+                withCredentials: true
+            },
             timeout: 300000,
             success: function(data) {
                 uploaded += (data.uploaded || 0);
@@ -590,6 +596,9 @@ function browseServerFolder(path) {
     $.ajax({
         url: '/api/browse_server_folder',
         data: { path: path },
+        xhrFields: {
+            withCredentials: true
+        },
         success: function(data) {
             $('#folder-browser').show();
             $('#browser-current-path').text(data.current_path);
@@ -661,6 +670,9 @@ function importFromFolder() {
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify({ source_dir: src, target_subfolder: tgt }),
+        xhrFields: {
+            withCredentials: true
+        },
         timeout: 600000,
         success: function(data) {
             $('#import-btn').prop('disabled', false)

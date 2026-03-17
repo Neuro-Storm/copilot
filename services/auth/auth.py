@@ -249,7 +249,7 @@ def auth_require_role(*allowed_roles):
 # --- Flask приложение ---
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True)
 
 
 # ==================== АУТЕНТИФИКАЦИЯ ====================

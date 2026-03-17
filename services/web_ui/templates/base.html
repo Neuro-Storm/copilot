@@ -355,6 +355,18 @@
 
         // Инициализация при загрузке страницы
         $(document).ready(function() {
+            // Настраиваем автоматическую передачу токена авторизации
+            $.ajaxSetup({
+                beforeSend: function(xhr) {
+                    const token = document.cookie.split('; ')
+                        .find(row => row.startsWith('access_token='))
+                        ?.split('=')[1];
+                    if (token) {
+                        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                    }
+                }
+            });
+
             updateStats();
             updateFiles();
             updateServiceStatus();

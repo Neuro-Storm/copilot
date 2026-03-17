@@ -1917,9 +1917,6 @@ if __name__ == '__main__':
     cleanup_thread = threading.Thread(target=cleanup_terminated_processes, daemon=True)
     cleanup_thread.start()
 
-    if AUTH_REQUIRED and (not AUTH_USERNAME or not AUTH_PASSWORD):
-        raise RuntimeError("WEB_CONFIG_USERNAME и WEB_CONFIG_PASSWORD должны быть установлены, когда требуется аутентификация.")
-
     # Загрузка настроек из config.json
     config_path = Path("config.json")
     if config_path.exists():
