@@ -138,18 +138,32 @@
                     }
 
                     // Используем source из metadata как источник
-                    let sourceName = 'Неизвестно';
-                    if (result.metadata && result.metadata.source) {
+                    let sourceName = '';
+                    if (result.metadata && result.metadata.source
+                        && result.metadata.source !== 'memory'
+                        && result.metadata.source !== 'indexer'
+                        && result.metadata.source !== 'manager_v1') {
                         sourceName = result.metadata.source;
-                    } else if (result.metadata && result.metadata.file_name) {
-                        sourceName = result.metadata.file_name;
-                    } else {
-                        sourceName = result.source_id || 'Неизвестно';
                     }
 
                     // Создаем элемент для результата
                     const resultItem = document.createElement('div');
                     resultItem.className = 'result-item';
+
+                    // Заголовок с названием файла
+                    let fileName = '';
+                    if (result.metadata) {
+                        fileName = result.metadata.doc_id
+                            || result.metadata.filename
+                            || result.metadata.file_name
+                            || '';
+                    }
+                    if (fileName) {
+                        const titleDiv = document.createElement('div');
+                        titleDiv.className = 'result-title';
+                        titleDiv.textContent = fileName;
+                        resultItem.appendChild(titleDiv);
+                    }
 
                     // Оценка
                     const scoreDiv = document.createElement('div');
@@ -167,7 +181,11 @@
                     // Метаданные источника
                     const metadataDiv = document.createElement('div');
                     metadataDiv.className = 'result-metadata';
-                    metadataDiv.textContent = `Источник: ${escapeHtml(sourceName)}`;
+                    if (sourceName) {
+                        metadataDiv.textContent = `Источник: ${escapeHtml(sourceName)}`;
+                    } else {
+                        metadataDiv.style.display = 'none';
+                    }
 
                     // Добавляем текст и метаданные в контейнер
                     contentDiv.appendChild(textDiv);

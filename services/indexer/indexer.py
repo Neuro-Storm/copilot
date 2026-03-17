@@ -363,15 +363,14 @@ class IndexerService(indexer_pb2_grpc.IndexerServiceServicer):
                 chunk_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{doc_identifier}_{chunk.start}_{chunk.end}"))
 
                 # Создать метаданные для чанка
-                # Включает текст чанка, позиции, источник, идентификатор документа и дополнительные метаданные
+                # Метаданные от chunker (исключаем source, чтобы не затереть путь к файлу)
+                chunker_meta = {k: v for k, v in dict(chunk.metadata).items() if k != "source"}
+
                 chunk_metadata = {
                     "text": chunk.text,
-                    "start": chunk.start,
-                    "end": chunk.end,
-                    "source": "indexer",
                     "doc_id": doc_identifier,
                     **metadata,
-                    **dict(chunk.metadata)
+                    **chunker_meta
                 }
 
                 # Создать точку для Qdrant

@@ -994,7 +994,7 @@ class Manager:
             logger.error(f"Неожиданная ошибка при конвертации файла {file_path}: {e}")
             return False, f"Unexpected error during conversion: {e}"
 
-    def index(self, md_path, original_filename):
+    def index(self, md_path, original_filename, original_filepath=None):
         """
         Вызов indexer.proto (streaming) для индексации файла.
 
@@ -1004,6 +1004,7 @@ class Manager:
         Args:
             md_path (str): путь к MD-файлу для индексации
             original_filename (str): оригинальное имя файла
+            original_filepath (str, optional): полный путь к оригинальному файлу
 
         Returns:
             tuple: (bool, str) - успех операции и сообщение об ошибке или OK
@@ -1033,7 +1034,7 @@ class Manager:
             yield indexer_pb2.IndexFileRequest(
                 header=indexer_pb2.FileHeader(
                     filename=original_filename,
-                    metadata={"source": "manager_v1", "processed_at": datetime.now().isoformat()},
+                    metadata={"source": original_filepath or original_filename, "processed_at": datetime.now().isoformat()},
                     total_size=len(content.encode('utf-8'))
                 )
             )
@@ -1116,7 +1117,7 @@ class Manager:
 
         # Шаг 2: Индексер
         try:
-            ok_idx, res_idx = self.index(md_file, fname)
+            ok_idx, res_idx = self.index(md_file, fname, fpath)
         except Exception as e:
             logger.error(f"Критическая ошибка при индексации файла {md_file}: {e}")
             error_msg_idx = f"Критическая ошибка при индексации: {str(e)}"
