@@ -58,6 +58,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
+# Регистрация встроенных функций Python для использования в Jinja2-шаблонах
+app.jinja_env.globals.update(min=min, max=max)
+
 # Адрес основного сервиса
 MAIN_SERVICE_URL = os.getenv('MAIN_SERVICE_URL', 'http://localhost:5001')
 
