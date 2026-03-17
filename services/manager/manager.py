@@ -1634,6 +1634,8 @@ def api_upload_batch(current_user=None):
         relative_paths = []
 
     subfolder = request.form.get('subfolder', '').strip()
+    if subfolder in ('null', 'undefined', 'None'):
+        subfolder = ''
 
     allowed_extensions = set(
         manager_instance.cfg.get('allowed_extensions') or
@@ -1758,6 +1760,8 @@ def api_import_folder(current_user=None):
 
     source_dir = data['source_dir'].strip()
     target_subfolder = data.get('target_subfolder', '').strip()
+    if target_subfolder in ('null', 'undefined', 'None'):
+        target_subfolder = ''
 
     try:
         result = manager_instance.fm.import_from_folder(source_dir, target_subfolder)

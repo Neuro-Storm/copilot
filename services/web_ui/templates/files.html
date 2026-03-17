@@ -513,7 +513,7 @@ function clearPendingFiles() { pendingFiles = []; renderPendingFiles(); }
 function uploadBatch() {
     if (pendingFiles.length === 0) return;
 
-    var subfolder = $('#upload-subfolder').val();
+    var subfolder = $('#upload-subfolder').val() || '';
     var BATCH_SIZE = 20;
     var batches = [];
     for (var i = 0; i < pendingFiles.length; i += BATCH_SIZE) {
