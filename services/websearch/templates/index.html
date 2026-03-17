@@ -165,6 +165,18 @@
                         resultItem.appendChild(titleDiv);
                     }
 
+                    // Ссылка на MD-файл
+                    if (result.metadata && result.metadata.md_path) {
+                        const linkDiv = document.createElement('div');
+                        linkDiv.className = 'result-md-link';
+                        const link = document.createElement('a');
+                        link.href = '/api/view_md?path=' + encodeURIComponent(result.metadata.md_path);
+                        link.target = '_blank';
+                        link.textContent = 'Открыть документ';
+                        linkDiv.appendChild(link);
+                        resultItem.appendChild(linkDiv);
+                    }
+
                     // Оценка
                     const scoreDiv = document.createElement('div');
                     scoreDiv.className = 'result-score';

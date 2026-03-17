@@ -466,6 +466,27 @@ async def health_check():
         return {"status": "unhealthy", "searcher": "error", "error": str(e)}
 
 
+@app.get("/api/view_md")
+async def view_md(path: str, request: Request):
+    """Отдаёт MD-файл для просмотра в браузере."""
+    user = await get_current_user(request, AUTH_SECRET_KEY)
+
+    # Проверка безопасности пути
+    try:
+        resolved = Path(path).resolve()
+        if not resolved.exists():
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        if not resolved.suffix.lower() == '.md':
+            raise HTTPException(status_code=403, detail="Доступ только к .md файлам")
+    except (OSError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный путь")
+
+    content = resolved.read_text(encoding='utf-8')
+
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host=config.WEB_SERVER_HOST, port=config.WEB_SERVER_PORT)

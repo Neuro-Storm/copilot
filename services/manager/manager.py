@@ -1034,7 +1034,11 @@ class Manager:
             yield indexer_pb2.IndexFileRequest(
                 header=indexer_pb2.FileHeader(
                     filename=original_filename,
-                    metadata={"source": original_filepath or original_filename, "processed_at": datetime.now().isoformat()},
+                    metadata={
+                        "source": original_filepath or original_filename,
+                        "md_path": md_path,
+                        "processed_at": datetime.now().isoformat()
+                    },
                     total_size=len(content.encode('utf-8'))
                 )
             )

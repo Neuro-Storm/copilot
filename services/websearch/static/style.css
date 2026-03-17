@@ -111,3 +111,17 @@ body {
     overflow-wrap: break-word;
     hyphens: auto;
 }
+
+.result-md-link {
+    margin-bottom: 8px;
+}
+
+.result-md-link a {
+    color: #007bff;
+    text-decoration: none;
+    font-size: 0.9em;
+}
+
+.result-md-link a:hover {
+    text-decoration: underline;
+}
