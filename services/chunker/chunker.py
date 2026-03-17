@@ -2,6 +2,7 @@ import logging
 import re
 import os
 import json
+import copy
 from concurrent import futures
 from pathlib import Path
 from typing import Generator, Tuple, Iterator
@@ -19,36 +20,39 @@ DEFAULTS = {
     "logging": {"level": "INFO", "file": "chunker.log", "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"}
 }
 
+# Создаём глубокую копию DEFAULTS для работы
+config = copy.deepcopy(DEFAULTS)
+
 if CONFIG_PATH.exists():
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             file_config = json.load(f)
-            # Обновляем defaults с учетом вложенной структуры
+            # Обновляем config с учетом вложенной структуры
             for section, values in file_config.items():
-                if section in DEFAULTS and isinstance(DEFAULTS[section], dict):
-                    DEFAULTS[section].update(values)
+                if section in config and isinstance(config[section], dict):
+                    config[section].update(values)
                 else:
-                    DEFAULTS.update({section: values})
+                    config[section] = values
     except Exception as e:
         logging.warning(f"Config load failed: {e}")
 
 # Извлечение конфигурации
-SERVER_HOST = DEFAULTS["server"]["host"]
-SERVER_PORT = DEFAULTS["server"]["port"]
-MAX_WORKERS = DEFAULTS["server"].get("max_workers", 4)
-CHUNK_SIZE = DEFAULTS["chunking"]["chunk_size"]
-OVERLAP = DEFAULTS["chunking"]["overlap_size"]
-MAX_FILE_SIZE_MB = DEFAULTS["chunking"]["max_file_size_mb"]
+SERVER_HOST = config["server"]["host"]
+SERVER_PORT = config["server"]["port"]
+MAX_WORKERS = config["server"].get("max_workers", 4)
+CHUNK_SIZE = config["chunking"]["chunk_size"]
+OVERLAP = config["chunking"]["overlap_size"]
+MAX_FILE_SIZE_MB = config["chunking"]["max_file_size_mb"]
 MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024  # Convert to bytes
-BASE_DIR = Path(DEFAULTS["data"]["base_dir"]).resolve()
+BASE_DIR = Path(config["data"]["base_dir"]).resolve()
 
 # Настройка логирования
-log_level = getattr(logging, DEFAULTS["logging"]["level"].upper())
+log_level = getattr(logging, config["logging"]["level"].upper())
 logging.basicConfig(
     level=log_level,
-    format=DEFAULTS["logging"]["format"],
+    format=config["logging"]["format"],
     handlers=[
-        logging.FileHandler(DEFAULTS["logging"]["file"]),
+        logging.FileHandler(config["logging"]["file"]),
         logging.StreamHandler()
     ]
 )

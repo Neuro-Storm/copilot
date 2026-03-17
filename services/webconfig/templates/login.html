@@ -91,11 +91,7 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Cookie устанавливается auth-сервисом,
-                    // но для кросс-доменных запросов дублируем через JS
-                    if (data.access_token) {
-                        document.cookie = `access_token=${data.access_token}; path=/; SameSite=Lax; max-age=1800`;
-                    }
+                    // Cookie устанавливается auth-сервисом с httponly
                     window.location.href = '/';
                 } else {
                     errorEl.textContent = data.error || 'Ошибка входа';

@@ -211,36 +211,45 @@
         function compileProtoFile() {
             const service_name = "{{ service_name }}";
             const proto_filename = "{{ proto_filename }}";
-            
+            const content = document.getElementById('proto-editor').value;
+
             if (confirm(`Вы уверены, что хотите скомпилировать ${proto_filename} в pb2 файлы?`)) {
-                // Сначала сохраняем файл
-                saveProtoFile();
-                
-                // Затем компилируем
-                setTimeout(() => {
-                    fetch('/api/proto/compile', {
+                // Сначала сохраняем файл, потом в .then() компилируем
+                fetch(`/api/protos/${service_name}/${proto_filename}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: content })
+                })
+                .then(response => response.json())
+                .then(saveData => {
+                    if (!saveData.success) {
+                        showStatus('Ошибка сохранения: ' + saveData.error, false);
+                        return Promise.reject('save failed');
+                    }
+                    showStatus('Файл сохранён, компилируем...', true);
+                    return fetch('/api/proto/compile', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             service_name: service_name,
                             proto_filename: proto_filename
                         })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            showStatus(data.message, true);
-                        } else {
-                            showStatus('Ошибка компиляции: ' + data.error, false);
-                        }
-                    })
-                    .catch(error => {
+                    });
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showStatus(data.message, true);
+                    } else {
+                        showStatus('Ошибка компиляции: ' + data.error, false);
+                    }
+                })
+                .catch(error => {
+                    if (error !== 'save failed') {
                         console.error('Ошибка при компиляции proto:', error);
                         showStatus('Ошибка при компиляции proto', false);
-                    });
-                }, 1000); // Небольшая задержка, чтобы файл успел сохраниться
+                    }
+                });
             }
         }
     </script>

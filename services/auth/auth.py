@@ -202,14 +202,17 @@ def _check_lockout(username):
     with get_db() as conn:
         cutoff = time.time() - LOCKOUT_DURATION
         row = conn.execute(
-            """SELECT COUNT(*) as cnt FROM audit_log
+            """SELECT COUNT(*) as cnt, MAX(strftime('%s', created_at)) as last_attempt
+               FROM audit_log
                WHERE action = 'login_failed'
                AND username = ?
                AND created_at > datetime(?, 'unixepoch')""",
             (username, cutoff)
         ).fetchone()
-        if row and row['cnt'] >= MAX_LOGIN_ATTEMPTS:
-            return True, LOCKOUT_DURATION
+        if row and row['cnt'] >= MAX_LOGIN_ATTEMPTS and row['last_attempt']:
+            last_attempt_ts = float(row['last_attempt'])
+            remaining = int(LOCKOUT_DURATION - (time.time() - last_attempt_ts))
+            return True, max(1, remaining)
     return False, 0
 
 
@@ -249,6 +252,7 @@ def auth_require_role(*allowed_roles):
 # --- Flask приложение ---
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 1 * 1024 * 1024  # 1 MB
 CORS(app, supports_credentials=True)
 
 

@@ -32,6 +32,7 @@ from tokens import verify_token
 AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
 
 # Define services directory
 SERVICES_DIR = Path(__file__).parent.parent.resolve()
@@ -1723,29 +1724,19 @@ class ProtoCompiler:
         return compiler_path
 
     def _sanitize_proto_content(self, proto_content):
-        """Sanitizes proto content to prevent malicious code injection"""
-        # Check for potentially dangerous patterns in proto content
-        dangerous_patterns = [
-            'import os',
-            'import sys',
-            'import subprocess',
-            'import shutil',
-            'exec(',
-            'eval(',
-            '__import__(',
-            'open(',
-            'file(',
-            'getattr(',
-            'setattr(',
-            'delattr(',
-            'compile(',
-            'execfile(',
-        ]
+        """Базовая проверка что содержимое является proto файлом"""
+        content_stripped = proto_content.strip()
+        if not content_stripped:
+            raise ValueError("Proto файл пуст")
 
-        lower_content = proto_content.lower()
-        for pattern in dangerous_patterns:
-            if pattern in lower_content:
-                raise ValueError(f"Обнаружено потенциально опасное выражение в proto файле: {pattern}")
+        # Проверяем что файл начинается с типичных proto-конструкций
+        if not (content_stripped.startswith('syntax')
+                or content_stripped.startswith('//')
+                or content_stripped.startswith('/*')
+                or content_stripped.startswith('package')
+                or content_stripped.startswith('import')
+                or content_stripped.startswith('option')):
+            raise ValueError("Файл не похож на proto: ожидается syntax, package, import или комментарий в начале")
 
         return proto_content
 
@@ -1766,28 +1757,31 @@ class ProtoCompiler:
                 temp_file.write(sanitized_content)
                 temp_proto_path = temp_file.name
 
-            # Проверяем синтаксис с помощью protoc
-            cmd = [
-                self.compiler_path,
-                '--error_format=json',
-                f"--proto_path={os.path.dirname(temp_proto_path)}",
-                temp_proto_path
-            ]
+            try:
+                # Проверяем синтаксис с помощью protoc
+                cmd = [
+                    self.compiler_path,
+                    '--error_format=json',
+                    f"--proto_path={os.path.dirname(temp_proto_path)}",
+                    temp_proto_path
+                ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
-            # Удаляем временный файл
-            os.unlink(temp_proto_path)
-
-            if result.returncode == 0:
-                return True, "Синтаксис корректен"
-            else:
-                error_msg = result.stderr.strip() or result.stdout.strip()
-                return False, f"Ошибка синтаксиса: {error_msg}"
+                if result.returncode == 0:
+                    return True, "Синтаксис корректен"
+                else:
+                    error_msg = result.stderr.strip() or result.stdout.strip()
+                    return False, f"Ошибка синтаксиса: {error_msg}"
+            finally:
+                # Гарантированно удаляем временный файл
+                os.unlink(temp_proto_path)
 
         except ValueError as e:
             # This is raised by our sanitization function
             return False, str(e)
+        except subprocess.TimeoutExpired:
+            return False, "Превышено время проверки синтаксиса (30 сек)"
         except Exception as e:
             return False, f"Ошибка проверки синтаксиса: {str(e)}"
 

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import signal
+import copy
 from concurrent import futures
 from pathlib import Path
 import sys
@@ -28,18 +29,18 @@ DEFAULTS = {
     }
 }
 
-config = DEFAULTS.copy()
+config = copy.deepcopy(DEFAULTS)
 
 if Path(CONFIG_PATH).exists():
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             file_config = json.load(f)
-            # Обновляем defaults с учетом вложенной структуры
+            # Обновляем config с учетом вложенной структуры
             for section, values in file_config.items():
                 if section in config and isinstance(config[section], dict):
                     config[section].update(values)
                 else:
-                    config.update({section: values})
+                    config[section] = values
     except Exception as e:
         logging.warning(f"Config load failed: {e}")
 

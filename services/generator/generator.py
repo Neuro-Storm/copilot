@@ -2,6 +2,7 @@ import logging
 import json
 import time
 import re
+import copy
 from concurrent import futures
 from pathlib import Path
 from typing import List, Dict, Any
@@ -41,45 +42,48 @@ DEFAULTS = {
     }
 }
 
+# Создаём глубокую копию DEFAULTS для работы
+config = copy.deepcopy(DEFAULTS)
+
 # Загрузка конфигурации из файла, если он существует
 if CONFIG_PATH.exists():
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             file_config = json.load(f)
-            # Обновляем defaults с учетом вложенной структуры
+            # Обновляем config с учетом вложенной структуры
             for section, values in file_config.items():
-                if section in DEFAULTS and isinstance(DEFAULTS[section], dict):
-                    DEFAULTS[section].update(values)
+                if section in config and isinstance(config[section], dict):
+                    config[section].update(values)
                 else:
-                    DEFAULTS.update({section: values})
+                    config[section] = values
     except Exception as e:
         logging.warning(f"Config load failed: {e}")
 
 # Извлечение конфигурации для сервера
-SERVER_HOST = DEFAULTS["server"]["host"]  # IP-адрес сервера
-SERVER_PORT = DEFAULTS["server"]["port"]  # Порт сервера
-MAX_WORKERS = DEFAULTS["server"].get("max_workers", 4)  # Количество рабочих потоков
+SERVER_HOST = config["server"]["host"]  # IP-адрес сервера
+SERVER_PORT = config["server"]["port"]  # Порт сервера
+MAX_WORKERS = config["server"].get("max_workers", 4)  # Количество рабочих потоков
 
 # Извлечение конфигурации для модели
-MODEL_PATH = DEFAULTS["model"]["path"]        # Путь к модели
-N_CTX = DEFAULTS["model"]["n_ctx"]            # Размер контекста модели
-N_THREADS = DEFAULTS["model"]["n_threads"]    # Количество потоков CPU
-N_GPU_LAYERS = DEFAULTS["model"]["n_gpu_layers"]  # Количество слоев для GPU
-TEMPERATURE = DEFAULTS["model"]["temperature"]    # Температура генерации
-TOP_P = DEFAULTS["model"]["top_p"]              # Параметр top-p для генерации
-REPEAT_PENALTY = DEFAULTS["model"]["repeat_penalty"]  # Штраф за повторения
-MAX_TOKENS = DEFAULTS["model"]["max_tokens"]          # Максимальное количество токенов в ответе
+MODEL_PATH = config["model"]["path"]        # Путь к модели
+N_CTX = config["model"]["n_ctx"]            # Размер контекста модели
+N_THREADS = config["model"]["n_threads"]    # Количество потоков CPU
+N_GPU_LAYERS = config["model"]["n_gpu_layers"]  # Количество слоев для GPU
+TEMPERATURE = config["model"]["temperature"]    # Температура генерации
+TOP_P = config["model"]["top_p"]              # Параметр top-p для генерации
+REPEAT_PENALTY = config["model"]["repeat_penalty"]  # Штраф за повторения
+MAX_TOKENS = config["model"]["max_tokens"]          # Максимальное количество токенов в ответе
 
 # Системный промпт по умолчанию
-SYSTEM_PROMPT = DEFAULTS["system_prompt"]
+SYSTEM_PROMPT = config["system_prompt"]
 
 # Настройка логирования
-log_level = getattr(logging, DEFAULTS["logging"]["level"].upper())  # Уровень логирования
+log_level = getattr(logging, config["logging"]["level"].upper())  # Уровень логирования
 logging.basicConfig(
     level=log_level,
-    format=DEFAULTS["logging"]["format"],  # Формат строки лога
+    format=config["logging"]["format"],  # Формат строки лога
     handlers=[
-        logging.FileHandler(DEFAULTS["logging"]["file"]),  # Логирование в файл
+        logging.FileHandler(config["logging"]["file"]),  # Логирование в файл
         logging.StreamHandler()  # Логирование в консоль
     ]
 )
