@@ -62,7 +62,16 @@ def load_config():
     return {}
 
 CONFIG = load_config()
-SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
+
+# Проверка SECRET_KEY: критично для безопасности!
+_SECRET_KEY_RAW = os.getenv('AUTH_SECRET_KEY')
+if not _SECRET_KEY_RAW or _SECRET_KEY_RAW == 'change-me-in-production':
+    raise RuntimeError(
+        "AUTH_SECRET_KEY не установлен или использует значение по умолчанию! "
+        "Задайте безопасный ключ в .env файле: AUTH_SECRET_KEY=ваш_секретный_ключ"
+    )
+SECRET_KEY = _SECRET_KEY_RAW
+
 HOST = CONFIG.get('host', '0.0.0.0')
 PORT = int(os.getenv('AUTH_SERVICE_PORT', CONFIG.get('port', 5050)))
 DB_PATH = Path(__file__).parent / CONFIG.get('db_path', 'auth.db')
@@ -198,17 +207,34 @@ def _check_lockout(username):
     """
     Проверяет, не заблокирован ли пользователь из-за множества неудачных попыток входа.
     Возвращает (is_locked, seconds_remaining).
+
+    Исправлено: учитываются только неудачные попытки ПОСЛЕ последнего успешного входа.
     """
     with get_db() as conn:
+        # Получаем время последнего успешного входа
+        last_success = conn.execute(
+            """SELECT MAX(created_at) FROM audit_log
+               WHERE action = 'login' AND username = ?""",
+            (username,)
+        ).fetchone()[0]
+
         cutoff = time.time() - LOCKOUT_DURATION
-        row = conn.execute(
-            """SELECT COUNT(*) as cnt, MAX(strftime('%s', created_at)) as last_attempt
-               FROM audit_log
-               WHERE action = 'login_failed'
-               AND username = ?
-               AND created_at > datetime(?, 'unixepoch')""",
-            (username, cutoff)
-        ).fetchone()
+
+        # Считаем неудачные попытки только после последнего успешного входа
+        query = """SELECT COUNT(*) as cnt, MAX(strftime('%s', created_at)) as last_attempt
+                   FROM audit_log
+                   WHERE action = 'login_failed'
+                   AND username = ?
+                   AND created_at > datetime(?, 'unixepoch')"""
+        params = [username, cutoff]
+
+        # Если был успешный вход, учитываем неудачные попытки только после него
+        if last_success:
+            query += " AND created_at > ?"
+            params.append(last_success)
+
+        row = conn.execute(query, params).fetchone()
+
         if row and row['cnt'] >= MAX_LOGIN_ATTEMPTS and row['last_attempt']:
             last_attempt_ts = float(row['last_attempt'])
             remaining = int(LOCKOUT_DURATION - (time.time() - last_attempt_ts))

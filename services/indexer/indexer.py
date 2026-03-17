@@ -22,6 +22,7 @@ import json
 import asyncio
 import uuid
 import time
+import threading
 
 # Загрузка переменных окружения из .env файла
 try:
@@ -131,13 +132,21 @@ def load_config():
     return config
 
 # Загрузка конфигурации будет выполнена при первом обращении
+# Потокобезопасный синглтон с двойной проверкой блокировки
+_config_lock = threading.Lock()
 _config_instance = None
 
 def get_config():
-    """Возвращает экземпляр конфигурации, загружая его при необходимости."""
+    """Возвращает экземпляр конфигурации, загружая его при необходимости.
+
+    Потокобезопасная реализация с использованием двойной проверки блокировки
+    (double-checked locking pattern) для предотвращения гонки при max_workers > 1.
+    """
     global _config_instance
     if _config_instance is None:
-        _config_instance = load_config()
+        with _config_lock:
+            if _config_instance is None:
+                _config_instance = load_config()
     return _config_instance
 
 

@@ -50,7 +50,50 @@ if _common_path not in sys.path:
     sys.path.append(_common_path)
 from auth_middleware import require_auth, require_role
 
-AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
+# Проверка SECRET_KEY: критично для безопасности!
+_SECRET_KEY_RAW = os.getenv('AUTH_SECRET_KEY')
+if not _SECRET_KEY_RAW or _SECRET_KEY_RAW == 'change-me-in-production':
+    raise RuntimeError(
+        "AUTH_SECRET_KEY не установлен или использует значение по умолчанию! "
+        "Задайте безопасный ключ в .env файле: AUTH_SECRET_KEY=ваш_секретный_ключ"
+    )
+AUTH_SECRET_KEY = _SECRET_KEY_RAW
+
+
+class CachedResponse:
+    """
+    Класс-обёртка для кэшированных HTTP-ответов.
+
+    Заменяет динамический объект-заглушку для обеспечения совместимости
+    с requests.Response (атрибуты .text, .ok, метод .raise_for_status()).
+    """
+    def __init__(self, data):
+        self.status_code = data.get('status_code', 200)
+        self.content = data.get('content', b'')
+        self.headers = data.get('headers', {})
+        self._json_data = data.get('json_data', {})
+
+    def json(self):
+        """Возвращает JSON-данные ответа."""
+        return self._json_data
+
+    @property
+    def ok(self):
+        """True, если статус ответа 2xx."""
+        return 200 <= self.status_code < 300
+
+    @property
+    def text(self):
+        """Текстовое представление ответа."""
+        if isinstance(self.content, bytes):
+            return self.content.decode('utf-8')
+        return str(self.content)
+
+    def raise_for_status(self):
+        """Выбрасывает исключение, если статус ответа не 2xx."""
+        if not self.ok:
+            raise requests.exceptions.HTTPError(f"HTTP {self.status_code}")
+
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -197,19 +240,9 @@ def make_request(method, endpoint, use_cache=True, **kwargs):
         if cache_key in cache:
             cached_response, timestamp = cache[cache_key]
             if current_time - timestamp < CACHE_TIMEOUT:
-                # Возвращаем кэшированный ответ, имитируя объект Response
-                # Это позволяет использовать кэшированные данные так же,
-                # как и настоящие ответы requests, обеспечивая совместимость
-                # с остальной частью кода
-                import io
-                import json as json_module
-                response = type('obj', (object,), {
-                    'status_code': cached_response.get('status_code', 200),
-                    'content': cached_response.get('content', b''),
-                    'headers': cached_response.get('headers', {}),
-                    'json': lambda _=None: cached_response.get('json_data', {})
-                })()
-                return response
+                # Возвращаем кэшированный ответ через класс CachedResponse
+                # для полной совместимости с requests.Response
+                return CachedResponse(cached_response)
 
     # SECURITY: Устанавливаем таймаут по умолчанию для предотвращения долгих блокировок
     # Это также помогает избежать DoS-атак, когда внешний сервис не отвечает

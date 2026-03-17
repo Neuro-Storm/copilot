@@ -685,8 +685,9 @@ class FileManager:
             if not resolved_path.is_relative_to(allowed_dir):
                 raise ValueError(f"Путь к файлу {file_path} находится вне разрешенного каталога")
             return str(resolved_path)
-        except Exception:
-            raise ValueError(f"Некорректный путь к файлу: {file_path}")
+        except (OSError, ValueError) as e:
+            # Конкретные исключения для лучшей диагностики
+            raise ValueError(f"Некорректный путь к файлу: {file_path} — {e}")
 
     def delete_file(self, file_id):
         """
@@ -912,15 +913,16 @@ class Manager:
             except:
                 pass  # Очередь может быть полной
 
-        # Ждем завершения рабочих потоков с таймаутом
-        for thread in self.worker_threads:
-            thread.join(timeout=self.cfg.get("worker_shutdown_timeout"))  # 5 секунд таймаута
-
-        # Wait for current tasks to complete (with timeout)
+        # ВАЖНО: Сначала ждем завершения задач в очереди, ПОКА потоки ещё работают
+        # и могут вызывать task_done(). После завершения потоков queue.join() зависнет.
         try:
             self.processing_queue.join()  # Wait for all tasks to be done
-        except:
-            logger.warning("Timeout waiting for tasks to complete during shutdown")
+        except Exception as e:
+            logger.warning(f"Ошибка при ожидании завершения задач: {e}")
+
+        # Ждем завершения рабочих потоков с таймаутом
+        for thread in self.worker_threads:
+            thread.join(timeout=self.cfg.get("worker_shutdown_timeout"))
 
         # Close gRPC channels
         try:

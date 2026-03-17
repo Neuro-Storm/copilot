@@ -29,7 +29,14 @@ if _common_path not in sys.path:
     sys.path.append(_common_path)
 from tokens import verify_token
 
-AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
+# Проверка SECRET_KEY: критично для безопасности!
+_SECRET_KEY_RAW = os.getenv('AUTH_SECRET_KEY')
+if not _SECRET_KEY_RAW or _SECRET_KEY_RAW == 'change-me-in-production':
+    raise RuntimeError(
+        "AUTH_SECRET_KEY не установлен или использует значение по умолчанию! "
+        "Задайте безопасный ключ в .env файле: AUTH_SECRET_KEY=ваш_секретный_ключ"
+    )
+AUTH_SECRET_KEY = _SECRET_KEY_RAW
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB

@@ -23,7 +23,14 @@ if _common_path not in sys.path:
     sys.path.append(_common_path)
 from auth_middleware_fastapi import get_current_user, get_current_user_optional
 
-AUTH_SECRET_KEY = os.getenv('AUTH_SECRET_KEY', 'change-me-in-production')
+# Проверка SECRET_KEY: критично для безопасности!
+_SECRET_KEY_RAW = os.getenv('AUTH_SECRET_KEY')
+if not _SECRET_KEY_RAW or _SECRET_KEY_RAW == 'change-me-in-production':
+    raise RuntimeError(
+        "AUTH_SECRET_KEY не установлен или использует значение по умолчанию! "
+        "Задайте безопасный ключ в .env файле: AUTH_SECRET_KEY=ваш_секретный_ключ"
+    )
+AUTH_SECRET_KEY = _SECRET_KEY_RAW
 
 import grpc
 import time
@@ -97,8 +104,10 @@ class Config:
             normalized_config.get("STATIC_DIR", normalized_config.get("STATICDIR", "static")))  # Директория статических файлов
 
         # Параметры генерации (для интеграции с generator сервисом)
-        self.ENABLE_GENERATION: bool = bool(os.getenv("ENABLE_GENERATION",
-            normalized_config.get("ENABLE_GENERATION", False)))  # Включение генерации ответов
+        # Исправлено: bool("false") возвращает True, поэтому используем правильную проверку строки
+        _enable_gen_raw = os.getenv("ENABLE_GENERATION",
+            str(normalized_config.get("ENABLE_GENERATION", False)))
+        self.ENABLE_GENERATION: bool = str(_enable_gen_raw).lower() in ('true', '1', 'yes', 'on')
         self.GENERATOR_HOST: str = os.getenv("GENERATOR_HOST",
             normalized_config.get("GENERATOR_HOST", normalized_config.get("GENERATORHOST", "localhost")))  # Адрес generator сервиса
         self.GENERATOR_PORT: int = int(os.getenv("GENERATOR_PORT",
@@ -153,16 +162,28 @@ async def shutdown_event():
 
     Закрывает асинхронные gRPC каналы к searcher и generator сервисам
     в порядке, обратном их созданию.
-    """
-    if hasattr(app.state, 'searcher_channel') and app.state.searcher_channel:
-        logger.info("Закрытие gRPC канала к searcher...")
-        await app.state.searcher_channel.close()
-        logger.info("gRPC канал к searcher закрыт")
 
+    Исправлено: добавлена полная обработка ошибок для всех каналов.
+    """
+    # Закрываем канал к searcher (всегда должен существовать)
+    if hasattr(app.state, 'searcher_channel') and app.state.searcher_channel:
+        try:
+            logger.info("Закрытие gRPC канала к searcher...")
+            await app.state.searcher_channel.close()
+            logger.info("gRPC канал к searcher закрыт")
+        except Exception as e:
+            logger.error(f"Ошибка при закрытии канала к searcher: {e}")
+
+    # Закрываем канал к generator (если генерация включена)
     if hasattr(app.state, 'generator_channel') and app.state.generator_channel:
-        logger.info("Закрытие gRPC канала к generator...")
-        await app.state.generator_channel.close()
-        logger.info("gRPC канал к generator закрыт")
+        try:
+            logger.info("Закрытие gRPC канала к generator...")
+            await app.state.generator_channel.close()
+            logger.info("gRPC канал к generator закрыт")
+        except Exception as e:
+            logger.error(f"Ошибка при закрытии канала к generator: {e}")
+
+    logger.info("Graceful shutdown завершён")
 
 
 async def lifespan(app):
