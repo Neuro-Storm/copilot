@@ -204,7 +204,7 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-list"></i> Список файлов</h5>
                 <div>
-                    <span class="text-muted">Всего: {{ total_count }}</span>
+                    <span class="text-muted">Всего: <span id="total-count-files">{{ total_count }}</span></span>
                 </div>
             </div>
             <div class="card-body">
@@ -293,6 +293,51 @@
 </div>
 
 <script>
+/* ========== Переопределение generateFileRow для 8 колонок ========== */
+
+// Переопределяем функцию из base.html — добавляем колонки "Путь к файлу" и "Путь к MD"
+function generateFileRow(file) {
+    let statusClass = '';
+    switch(file.status) {
+        case 'indexed': statusClass = 'bg-success'; break;
+        case 'pending': statusClass = 'bg-warning'; break;
+        case 'processing': statusClass = 'bg-info'; break;
+        case 'failed': statusClass = 'bg-danger'; break;
+        case 'conversion_success_only': statusClass = 'bg-info'; break;
+        case 'deleted': statusClass = 'bg-secondary'; break;
+        default: statusClass = 'bg-light';
+    }
+
+    const errorMessage = file.error_message
+        ? `<span class="text-danger" title="${file.error_message}">
+             <i class="fas fa-exclamation-triangle"></i>
+             ${file.error_message.substring(0, 50)}${file.error_message.length > 50 ? '...' : ''}
+           </span>` : '-';
+
+    const filePath = file.file_path || '-';
+    const mdPath = file.md_path || '-';
+
+    return `
+        <tr>
+            <td>${file.id}</td>
+            <td title="${filePath}">${file.filename.substring(0, 30)}${file.filename.length > 30 ? '...' : ''}</td>
+            <td title="${filePath}"><small>${filePath.length > 50 ? '...' + filePath.substring(filePath.length - 50) : filePath}</small></td>
+            <td title="${mdPath}"><small>${mdPath.length > 50 ? '...' + mdPath.substring(mdPath.length - 50) : mdPath}</small></td>
+            <td><span class="badge ${statusClass}">${file.status}</span></td>
+            <td>${errorMessage}</td>
+            <td>${file.updated_at}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="retryFile(${file.id})">
+                    <i class="fas fa-redo"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteFile(${file.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>
+    `;
+}
+
 /* ========== Подпапки ========== */
 
 function loadSubfolders() {
@@ -725,16 +770,27 @@ $(document).ready(function() {
         e.preventDefault();
 
         const status = $('#status-filter').val();
-        const limit = $('#limit').val();
+        const limit = parseInt($('#limit').val());
+
+        // Обновляем URL без перезагрузки (для F5, закладок, шаринга)
+        const params = new URLSearchParams();
+        params.set('page', '1');
+        params.set('limit', limit);
+        if (status) params.set('status', status);
+        history.replaceState(null, '', '?' + params.toString());
 
         // Обновляем таблицу файлов с новыми параметрами
-        updateAllFiles(1, parseInt(limit), status); // Переходим на первую страницу при изменении фильтров
+        updateAllFiles(1, limit, status); // Переходим на первую страницу при изменении фильтров
     });
 
     // Сброс фильтров
     $('button[type="reset"]').on('click', function() {
         $('#status-filter').val('');
         $('#limit').val('50');
+        
+        // Обновляем URL
+        history.replaceState(null, '', '?page=1&limit=50');
+        
         updateAllFiles(1, 50, ''); // Сбрасываем на первую страницу с 50 файлами и без статуса
     });
 });

@@ -298,6 +298,11 @@
 
                         // Обновляем пагинацию, если она существует
                         updatePagination(data.pagination);
+
+                        // Обновляем счётчик "Всего"
+                        if (data.pagination && data.pagination.total_count !== undefined) {
+                            $('#total-count-files').text(data.pagination.total_count);
+                        }
                     }
                 },
                 error: function() {
@@ -350,6 +355,14 @@
         function changePage(page) {
             const status = $('#status-filter').val();
             const limit = parseInt($('#limit').val()) || 50;
+
+            // Обновляем URL без перезагрузки (для F5, закладок, шаринга)
+            const params = new URLSearchParams();
+            params.set('page', page);
+            params.set('limit', limit);
+            if (status) params.set('status', status);
+            history.replaceState(null, '', '?' + params.toString());
+
             updateAllFiles(page, limit, status);
         }
 
@@ -371,16 +384,9 @@
             updateFiles();
             updateServiceStatus();
 
-            // Если находимся на странице файлов, обновляем полный список
-            if ($('#files-tbody').length > 0) {
-                // Получаем параметры из URL
-                const urlParams = new URLSearchParams(window.location.search);
-                const page = parseInt(urlParams.get('page')) || 1;
-                const limit = parseInt(urlParams.get('limit')) || 50;
-                const status = urlParams.get('status') || '';
-
-                updateAllFiles(page, limit, status);
-            }
+            // Не перезаписываем серверные данные при первичной загрузке.
+            // AJAX-обновление происходит только по действию пользователя
+            // (фильтр, пагинация, retry, delete).
         });
     </script>
 </body>
