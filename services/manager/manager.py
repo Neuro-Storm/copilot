@@ -24,7 +24,7 @@ from pathlib import Path
 from datetime import datetime
 from functools import wraps
 import threading
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 
 # Добавляем Flask для HTTP API
 from flask import Flask, jsonify, request, Response
@@ -1284,6 +1284,22 @@ class Manager:
         logger.info("=== Менеджер запущен ===")
         self.running_event.set()
 
+        # Сброс "зомби"-файлов, застрявших в processing с прошлого запуска
+        try:
+            with self.fm.get_connection() as conn:
+                result = conn.execute(
+                    "UPDATE files SET status = 'pending', updated_at = CURRENT_TIMESTAMP "
+                    "WHERE status = 'processing'"
+                )
+                conn.commit()
+                if result.rowcount > 0:
+                    logger.info(
+                        f"Сброшено {result.rowcount} файлов из 'processing' в 'pending' "
+                        f"(зомби с прошлого запуска)"
+                    )
+        except Exception as e:
+            logger.error(f"Ошибка сброса зомби-файлов: {e}")
+
         # Запускаем рабочие потоки
         num_workers = self.cfg.get("max_workers")
         for i in range(num_workers):
@@ -1307,7 +1323,12 @@ class Manager:
             # 2. Добавляем задачи в очередь
             tasks_added = 0
             logger.debug("Начало добавления задач в очередь")
-            while self.running_event.is_set():
+            
+            # Не добавляем больше, чем есть свободных мест в очереди
+            queue_free = self.processing_queue.maxsize - self.processing_queue.qsize()
+            added_this_cycle = 0
+            
+            while self.running_event.is_set() and added_this_cycle < queue_free:
                 try:
                     task = self.fm.get_pending_task()
                 except Exception as e:
@@ -1326,9 +1347,19 @@ class Manager:
                 try:
                     self.processing_queue.put(task, timeout=self.cfg.get("queue_operation_timeout"))  # Добавляем таймаут для избежания блокировки
                     tasks_added += 1
+                    added_this_cycle += 1
                     logger.debug(f"Задача добавлена в очередь: {task[0]}")
-                except:
-                    logger.warning(f"Очередь переполнена, пропускаем задачу. Уже добавлено задач: {tasks_added}")
+                except Full:
+                    # КРИТИЧНО: возвращаем файл обратно в pending, иначе он навсегда застрянет в processing
+                    fid, fname, fpath = task
+                    logger.warning(
+                        f"Очередь переполнена, возвращаем файл ID:{fid} '{fname}' в pending. "
+                        f"Уже добавлено задач: {tasks_added}"
+                    )
+                    try:
+                        self.fm.update_status(fid, 'pending')
+                    except Exception as e:
+                        logger.error(f"Не удалось вернуть файл ID:{fid} в pending: {e}")
                     break
 
             if tasks_added > 0:

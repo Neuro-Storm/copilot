@@ -18,7 +18,7 @@
     "ocr": {
       "enabled": true,
       "engine": "easyocr",
-      "force_full_page_ocr": true,
+      "force_full_page_ocr": false,
       "languages": [
         "ru",
         "en"
