@@ -6,7 +6,7 @@
   "scan_interval": 5,
   "api_port": 5001,
   "max_workers": 4,
-  "converter_timeout": 900,
+  "converter_timeout": 14400,
   "indexer_timeout": 120,
   "worker_shutdown_timeout": 5.0,
   "queue_operation_timeout": 1,
