@@ -6,6 +6,9 @@
     <title>Менеджер файлов RAG-системы</title>
     <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/vendor/font-awesome/css/all.min.css">
+    <!-- jQuery и Bootstrap загружены здесь, чтобы $ был доступен во всех block content -->
+    <script src="/static/vendor/jquery/jquery-3.6.0.min.js"></script>
+    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
     <style>
         body {
             padding-top: 20px;
@@ -67,8 +70,6 @@
         </footer>
     </div>
 
-    <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/vendor/jquery/jquery-3.6.0.min.js"></script>
     <script>
         // Функция для обновления статистики
         function updateStats() {
