@@ -76,12 +76,105 @@ except ImportError:
 
 # --- Конфигурация и Утилиты ---
 
+def normalize_filename_encoding(file_path):
+    """
+    Нормализует имя файла с некорректной кодировкой (например, cp1251 с Windows).
+    
+    Если имя файла содержит суррогатные символы (результат surrogateescape на Linux),
+    пытается декодировать из распространённых Windows-кодировок.
+    При успехе переименовывает файл на диске и возвращает новый путь.
+    
+    Args:
+        file_path (Path): путь к файлу
+        
+    Returns:
+        Path: исправленный путь (может совпадать с исходным, если проблем нет)
+        
+    Raises:
+        ValueError: если не удалось нормализовать имя файла
+    """
+    try:
+        # Проверяем, есть ли проблема: пробуем закодировать имя в UTF-8
+        str(file_path).encode('utf-8')
+        return file_path  # Всё ок, имя уже валидное UTF-8
+    except UnicodeEncodeError:
+        pass  # Есть суррогаты — нужно исправлять
+    
+    # Получаем «сырые» байты имени файла
+    try:
+        raw_name = os.fsencode(file_path.name)
+    except Exception as e:
+        raise ValueError(f"Не удалось получить байты имени файла: {e}")
+    
+    # Пробуем распространённые Windows-кодировки
+    encodings_to_try = ['cp1251', 'cp1252', 'cp866', 'latin-1', 'iso-8859-5']
+    decoded_name = None
+    
+    for enc in encodings_to_try:
+        try:
+            candidate = raw_name.decode(enc)
+            # Проверяем, что результат — осмысленный текст (есть буквы)
+            if any(c.isalpha() for c in candidate):
+                decoded_name = candidate
+                logger.info(f"Имя файла декодировано из {enc}: {raw_name!r} -> {decoded_name}")
+                break
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            continue
+    
+    if decoded_name is None:
+        # Крайний случай: транслитерируем в ASCII-safe имя
+        stem = file_path.suffix  # расширение обычно ASCII
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        decoded_name = f"renamed_{ts}{stem}"
+        logger.warning(f"Не удалось декодировать имя файла {raw_name!r}, переименовываем в {decoded_name}")
+    
+    # Переименовываем файл на диске
+    new_path = file_path.parent / decoded_name
+    
+    # Если файл с таким именем уже существует — добавляем timestamp
+    if new_path.exists() and new_path != file_path:
+        stem = Path(decoded_name).stem
+        suffix = Path(decoded_name).suffix
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        decoded_name = f"{stem}_{ts}{suffix}"
+        new_path = file_path.parent / decoded_name
+    
+    try:
+        os.rename(os.fsencode(file_path), os.fsencode(new_path))
+        logger.info(f"Файл переименован: {raw_name!r} -> {decoded_name}")
+        return new_path
+    except OSError as e:
+        raise ValueError(f"Не удалось переименовать файл: {e}")
+
+
 def safe_filename(filename):
     """
     Очистка имени файла от опасных символов.
     Убирает путевые разделители, спецсимволы, ведущие точки.
     Использует только re из стандартной библиотеки.
     """
+    # Защита от суррогатных символов (файлы с Windows-кодировкой)
+    try:
+        filename.encode('utf-8')
+    except UnicodeEncodeError:
+        # Пробуем восстановить через сырые байты
+        try:
+            raw = filename.encode('utf-8', errors='surrogateescape')
+            for enc in ('cp1251', 'cp1252', 'cp866', 'latin-1'):
+                try:
+                    filename = raw.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                # Совсем не удалось — генерируем безопасное имя
+                ext = ''
+                if '.' in filename:
+                    ext = '.' + filename.rsplit('.', 1)[-1]
+                return f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+        except Exception:
+            return f"file_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
     # Берём только имя файла (убираем путь)
     filename = filename.replace('\\', '/').split('/')[-1]
     # Убираем всё кроме букв, цифр, пробелов, точек, дефисов, подчёркиваний
@@ -308,6 +401,13 @@ class FileManager:
                 logger.debug(f"Обрабатываем файл: {p}, is_file: {p.is_file()}, suffix: {p.suffix.lower()}")
 
                 if p.is_file() and p.suffix.lower() in supported:
+                    # Нормализуем кодировку имени файла (для файлов с Windows)
+                    try:
+                        p = normalize_filename_encoding(p)
+                    except ValueError as e:
+                        logger.warning(f"Пропускаем файл с некорректным именем: {e}")
+                        continue
+                    
                     # Пропускаем файлы в директории converted_md
                     # Преобразуем пути к одному формату для сравнения
                     try:
@@ -779,6 +879,17 @@ class FileManager:
         for p in source_path.rglob('*'):
             if not p.is_file():
                 continue
+            
+            # Нормализуем кодировку (для файлов из Windows-шар и т.п.)
+            try:
+                p = normalize_filename_encoding(p)
+            except ValueError as e:
+                result['errors'] += 1
+                result['details'].append({
+                    'source': repr(os.fsencode(p)), 'error': str(e), 'status': 'encoding_error'
+                })
+                continue
+            
             if p.suffix.lower() not in supported:
                 result['skipped'] += 1
                 continue
