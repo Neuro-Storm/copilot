@@ -127,7 +127,8 @@ class Config:
             "worker_shutdown_timeout": 5.0,
             "queue_operation_timeout": 1,
             "max_upload_size_mb": 100,
-            "allowed_extensions": [".pdf", ".docx", ".pptx", ".txt", ".html", ".htm", ".tif", ".tiff"]
+            "allowed_extensions": [".pdf", ".docx", ".pptx", ".txt", ".html", ".htm", ".tif", ".tiff"],
+            "converted_md_base": None
         }
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -946,7 +947,8 @@ class Manager:
         Вызов converter.proto для конвертации файла.
 
         Если файл уже является MD-файлом, пропускает конвертацию.
-        Сохраняет результат конвертации в подкаталог converted_md.
+        Сохраняет результат конвертации в единую папку converted_md в корне files_dir,
+        повторяя структуру подпапок оригинала.
 
         Args:
             file_path (str): путь к файлу для конвертации
@@ -958,9 +960,32 @@ class Manager:
         if str(file_path).lower().endswith('.md'):
             return True, str(file_path)
 
-        md_dir = Path(file_path).parent / "converted_md"
-        md_dir.mkdir(exist_ok=True)
-        md_out = md_dir / (Path(file_path).stem + ".md")
+        # --- ЕДИНАЯ ПАПКА: converted_md в корне files_dir ---
+        file_p = Path(file_path).resolve()
+        files_root = self.fm.files_dir.resolve()
+
+        # Получаем базовую папку для MD из конфига (по умолчанию files/converted_md)
+        custom_md_base = self.cfg.get("converted_md_base")
+        if custom_md_base:
+            md_base = Path(custom_md_base).resolve()
+        else:
+            md_base = files_root / "converted_md"
+
+        try:
+            # Вычисляем относительный путь файла от корня files_dir
+            # Например: files/docs/reports/annual.pdf → docs/reports/annual.pdf
+            rel_path = file_p.relative_to(files_root)
+        except ValueError:
+            # Файл вне files_dir — фолбэк на старое поведение
+            logger.warning(f"Файл вне files_dir, используем локальную папку: {file_path}")
+            md_dir = Path(file_path).parent / "converted_md"
+            md_dir.mkdir(exist_ok=True)
+            md_out = md_dir / (Path(file_path).stem + ".md")
+        else:
+            # Собираем путь: md_base/docs/reports/annual.md
+            md_dir = md_base / rel_path.parent
+            md_dir.mkdir(parents=True, exist_ok=True)
+            md_out = md_dir / (Path(file_path).stem + ".md")
 
         logger.info("-> Конвертация: %s", file_path)
         req = converter_pb2.ConvertRequest(
