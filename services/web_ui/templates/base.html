@@ -126,13 +126,18 @@
             const errorMessage = file.error_message ?
                 `<span class="text-danger" title="${file.error_message}">
                     <i class="fas fa-exclamation-triangle"></i>
-                    ${file.error_message.substring(0, 30)}${file.error_message.length > 30 ? '...' : ''}
+                    ${file.error_message.substring(0, 50)}${file.error_message.length > 50 ? '...' : ''}
                 </span>` : '-';
+
+            const filePath = file.file_path || '-';
+            const mdPath = file.md_path || '-';
 
             return `
                 <tr class="file-row">
                     <td>${file.id}</td>
-                    <td title="${file.file_path}">${file.filename.substring(0, 30)}${file.filename.length > 30 ? '...' : ''}</td>
+                    <td title="${filePath}">${file.filename.substring(0, 30)}${file.filename.length > 30 ? '...' : ''}</td>
+                    <td title="${filePath}"><small>${filePath.length > 50 ? '...' + filePath.substring(filePath.length - 50) : filePath}</small></td>
+                    <td title="${mdPath}"><small>${mdPath.length > 50 ? '...' + mdPath.substring(mdPath.length - 50) : mdPath}</small></td>
                     <td><span class="badge ${statusClass} status-badge">${file.status}</span></td>
                     <td>${errorMessage}</td>
                     <td>${file.updated_at}</td>
