@@ -189,7 +189,8 @@
                     success: function(data) {
                         if (data.success) {
                             alert('Файл помечен для повторной обработки');
-                            updateFiles(); // Обновляем список файлов
+                            if (typeof updateAllFiles === 'function') updateAllFiles();
+                            else updateFiles();
                         } else {
                             alert('Ошибка при повторной обработке: ' + data.error);
                         }
@@ -219,7 +220,8 @@
                     success: function(data) {
                         if (data.success) {
                             alert('Файл помечен как удаленный');
-                            updateFiles(); // Обновляем список файлов
+                            if (typeof updateAllFiles === 'function') updateAllFiles();
+                            else updateFiles();
                         } else {
                             alert('Ошибка при удалении: ' + data.error);
                         }

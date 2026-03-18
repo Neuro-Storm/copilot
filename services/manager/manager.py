@@ -1550,8 +1550,11 @@ def api_files():
 
         # Валидация статуса
         status_filter = request.args.get('status', '')
-        if status_filter and status_filter not in ['pending', 'indexed', 'failed', 'deleted', 'conversion_success_only']:
-            status_filter = ''  # Сбросить фильтр если статус недопустимый
+        if status_filter:
+            # Валидируем по реальным статусам из БД вместо hardcoded списка
+            valid_statuses = manager_instance.fm.get_unique_statuses()
+            if status_filter not in valid_statuses:
+                status_filter = ''
 
         files = manager_instance.fm.get_files(limit=limit, offset=offset, status_filter=status_filter)
         total_count = manager_instance.fm.get_total_files_count(status_filter)

@@ -182,10 +182,10 @@
                     <div class="col-md-2">
                         <label for="limit" class="form-label">На странице</label>
                         <select id="limit" class="form-select">
-                            <option value="10" {% if request.args.get('limit', '10') == '10' %}selected{% endif %}>10</option>
-                            <option value="25" {% if request.args.get('limit', '10') == '25' %}selected{% endif %}>25</option>
-                            <option value="50" {% if request.args.get('limit', '10') == '50' %}selected{% endif %}>50</option>
-                            <option value="100" {% if request.args.get('limit', '10') == '100' %}selected{% endif %}>100</option>
+                            <option value="10" {% if request.args.get('limit', '50') == '10' %}selected{% endif %}>10</option>
+                            <option value="25" {% if request.args.get('limit', '50') == '25' %}selected{% endif %}>25</option>
+                            <option value="50" {% if request.args.get('limit', '50') == '50' %}selected{% endif %}>50</option>
+                            <option value="100" {% if request.args.get('limit', '50') == '100' %}selected{% endif %}>100</option>
                         </select>
                     </div>
                     <div class="col-md-6 d-flex align-items-end">
