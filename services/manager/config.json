@@ -7,7 +7,7 @@
   "api_port": 5001,
   "max_workers": 4,
   "converter_timeout": 14400,
-  "indexer_timeout": 120,
+  "indexer_timeout": 3600,
   "worker_shutdown_timeout": 5.0,
   "queue_operation_timeout": 1,
   "max_upload_size_mb": 100,
