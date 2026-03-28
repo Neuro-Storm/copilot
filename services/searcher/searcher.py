@@ -7,6 +7,7 @@ from concurrent import futures
 import time
 import math
 import re
+import hashlib
 from collections import Counter
 
 from qdrant_client import QdrantClient
@@ -22,9 +23,12 @@ import searcher_pb2_grpc
 
 # ─── Токенизация для BM25 query encoding ──────────────────────
 _STOP_WORDS = {
+    # Русские
     'и', 'в', 'на', 'с', 'по', 'для', 'из', 'к', 'от', 'за', 'о', 'об',
     'до', 'не', 'но', 'а', 'что', 'как', 'это', 'все', 'он', 'она', 'они',
     'мы', 'вы', 'я', 'ты', 'при', 'так', 'же', 'бы', 'ли', 'уже', 'был',
+    'была', 'было', 'были', 'быть', 'если', 'его', 'её', 'их', 'или',
+    # Английские
     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
     'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
     'of', 'in', 'to', 'for', 'with', 'on', 'at', 'from', 'by', 'as',
@@ -32,6 +36,15 @@ _STOP_WORDS = {
 }
 _TOKEN_RE = re.compile(r'[a-zA-Zа-яА-ЯёЁ0-9]+', re.UNICODE)
 _VOCAB_SIZE = 50000  # Должен совпадать с indexer'ом!
+
+
+def _stable_hash(term: str) -> int:
+    """Детерминистичный хеш терма, одинаковый между процессами.
+
+    Использует MD5 для получения стабильного хеша, который не зависит
+    от PYTHONHASHSEED и одинаков в разных процессах Python.
+    """
+    return int(hashlib.md5(term.encode('utf-8')).hexdigest(), 16)
 
 
 def tokenize(text: str) -> list:
@@ -52,7 +65,7 @@ def encode_sparse_query(text: str) -> dict:
 
     seen = {}
     for term in tokens:
-        idx = hash(term) % _VOCAB_SIZE
+        idx = _stable_hash(term) % _VOCAB_SIZE
         if idx not in seen:
             seen[idx] = 1.0  # Вес = 1.0, IDF применит Qdrant
 
@@ -236,15 +249,28 @@ class SearchEngine:
                     )
 
                 # Qdrant Query с Reciprocal Rank Fusion
-                search_results = self.qdrant_client.query_points(
-                    collection_name=self.collection_name,
-                    prefetch=prefetch,
-                    query=models.FusionQuery(fusion=models.Fusion.RRF),
-                    limit=self.result_count,
-                    with_payload=self.with_payload,
-                    with_vectors=self.with_vectors,
-                    timeout=self.qdrant_timeout,
-                ).points
+                try:
+                    search_results = self.qdrant_client.query_points(
+                        collection_name=self.collection_name,
+                        prefetch=prefetch,
+                        query=models.FusionQuery(fusion=models.Fusion.RRF),
+                        limit=self.result_count,
+                        with_payload=self.with_payload,
+                        with_vectors=self.with_vectors,
+                        timeout=self.qdrant_timeout,
+                    ).points
+                except Exception as e:
+                    # Fallback на обычный dense-поиск при ошибке гибридного
+                    logger.warning(f"Гибридный поиск не удался, fallback на dense: {e}")
+                    search_results = self.qdrant_client.query_points(
+                        collection_name=self.collection_name,
+                        query=query_vector,
+                        limit=self.result_count,
+                        with_payload=self.with_payload,
+                        with_vectors=self.with_vectors,
+                        using=self.vector_name,
+                        timeout=self.qdrant_timeout
+                    ).points
 
             # Форматирование результатов
             formatted_results = []

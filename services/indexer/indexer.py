@@ -25,6 +25,7 @@ import time
 import threading
 import math
 import re
+import hashlib
 from collections import defaultdict, Counter
 
 # Загрузка переменных окружения из .env файла
@@ -168,6 +169,15 @@ _STOP_WORDS = {
 _TOKEN_RE = re.compile(r'[a-zA-Zа-яА-ЯёЁ0-9]+', re.UNICODE)
 
 
+def _stable_hash(term: str) -> int:
+    """Детерминистичный хеш терма, одинаковый между процессами.
+
+    Использует MD5 для получения стабильного хеша, который не зависит
+    от PYTHONHASHSEED и одинаков в разных процессах Python.
+    """
+    return int(hashlib.md5(term.encode('utf-8')).hexdigest(), 16)
+
+
 def tokenize(text: str) -> list:
     """Простая токенизация: lowercase + split + стоп-слова."""
     tokens = _TOKEN_RE.findall(text.lower())
@@ -201,7 +211,7 @@ class BM25SparseEncoder:
 
     def _term_to_index(self, term: str) -> int:
         """Стабильное отображение терма в числовой индекс."""
-        return hash(term) % self.vocab_size
+        return _stable_hash(term) % self.vocab_size
 
     @property
     def avg_doc_length(self) -> float:

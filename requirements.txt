@@ -20,7 +20,7 @@ requests
 python-dotenv
 
 # Database and storage
-qdrant-client
+qdrant-client>=1.7.0
 
 # Process management
 psutil
