@@ -17,5 +17,9 @@
 
   "hybrid_search": true,
   "sparse_vector_name": "bm25_sparse",
-  "hybrid_prefetch_limit": 20
+  "hybrid_prefetch_limit": 20,
+
+  "mmr_enabled": true,
+  "mmr_lambda": 0.7,
+  "mmr_prefetch_multiplier": 3
 }

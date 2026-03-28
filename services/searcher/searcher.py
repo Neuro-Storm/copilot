@@ -159,6 +159,11 @@ class SearchEngine:
         self.sparse_vector_name = config.get("sparse_vector_name", "bm25_sparse")
         self.hybrid_prefetch_limit = config.get("hybrid_prefetch_limit", 20)
 
+        # ── MMR (Maximal Marginal Relevance) ──
+        self.mmr_enabled = config.get("mmr_enabled", False)
+        self.mmr_lambda = config.get("mmr_lambda", 0.7)
+        self.mmr_prefetch_multiplier = config.get("mmr_prefetch_multiplier", 3)
+
     def get_embedding(self, text: str) -> List[float]:
         """Получает векторное представление для заданного текста из сервиса embedder.
 
@@ -197,26 +202,124 @@ class SearchEngine:
             logger.error(f"Ошибка при получении эмбеддинга: {e}")
             raise
 
-    def search(self, query: str) -> List[Dict[str, Any]]:
-        """Выполняет поиск: чисто семантический или гибридный (dense + sparse).
+    @staticmethod
+    def jaccard_similarity(tokens_a: set, tokens_b: set) -> float:
+        """Коэффициент Жаккара между двумя множествами токенов.
 
-        При hybrid_search=true используется Qdrant Prefetch + RRF:
-        - prefetch 1: dense vector search (embedder → cosine)
-        - prefetch 2: sparse vector search (BM25 tokens)
-        - fusion: reciprocal rank fusion встроенный в Qdrant
+        J(A,B) = |A ∩ B| / |A ∪ B|
+
+        Returns:
+            float от 0.0 (ничего общего) до 1.0 (идентичны)
+        """
+        if not tokens_a or not tokens_b:
+            return 0.0
+        intersection = len(tokens_a & tokens_b)
+        union = len(tokens_a | tokens_b)
+        return intersection / union if union > 0 else 0.0
+
+    def mmr_rerank(
+        self,
+        results: List[Dict[str, Any]],
+        top_n: int,
+        lambda_param: float = 0.7,
+    ) -> List[Dict[str, Any]]:
+        """Maximal Marginal Relevance — пере-ранжирование для разнообразия.
+
+        Итеративно выбирает результат, который максимизирует:
+            score = λ · norm_relevance(d) - (1-λ) · max_similarity(d, selected)
+
+        Сходство между результатами — Jaccard на токенизированном тексте.
+
+        Args:
+            results: Список результатов из Qdrant (с score и payload.text)
+            top_n: Сколько результатов вернуть после MMR
+            lambda_param: Баланс (1.0 = только релевантность, 0.0 = только разнообразие)
+
+        Returns:
+            Пере-ранжированный список длиной min(top_n, len(results))
+        """
+        if not results or lambda_param >= 1.0:
+            return results[:top_n]
+
+        # Предварительная токенизация всех результатов
+        tokenized = []
+        for r in results:
+            text = ""
+            if isinstance(r.get("payload"), dict):
+                text = r["payload"].get("text", "")
+            tokens = set(tokenize(text))
+            tokenized.append(tokens)
+
+        # Нормализация скоров в диапазон [0, 1]
+        scores = [r.get("score", 0.0) for r in results]
+        max_score = max(scores) if scores else 1.0
+        min_score = min(scores) if scores else 0.0
+        score_range = max_score - min_score if max_score != min_score else 1.0
+        norm_scores = [(s - min_score) / score_range for s in scores]
+
+        # Индексы: candidates — ещё не выбранные, selected — уже выбранные
+        n = len(results)
+        candidates = set(range(n))
+        selected_indices = []
+        selected_tokens = []  # токены уже выбранных (для быстрого Jaccard)
+
+        while len(selected_indices) < top_n and candidates:
+            best_idx = -1
+            best_mmr_score = -float('inf')
+
+            for idx in candidates:
+                # Компонент релевантности
+                relevance = norm_scores[idx]
+
+                # Компонент разнообразия: максимальное сходство с любым уже выбранным
+                max_sim = 0.0
+                if selected_tokens:
+                    for sel_tokens in selected_tokens:
+                        sim = self.jaccard_similarity(tokenized[idx], sel_tokens)
+                        if sim > max_sim:
+                            max_sim = sim
+
+                # MMR score
+                mmr_score = lambda_param * relevance - (1 - lambda_param) * max_sim
+
+                if mmr_score > best_mmr_score:
+                    best_mmr_score = mmr_score
+                    best_idx = idx
+
+            if best_idx < 0:
+                break
+
+            selected_indices.append(best_idx)
+            selected_tokens.append(tokenized[best_idx])
+            candidates.discard(best_idx)
+
+        # Собираем результаты в порядке MMR-выбора
+        return [results[i] for i in selected_indices]
+
+    def search(self, query: str) -> List[Dict[str, Any]]:
+        """Выполняет поиск: семантический или гибридный, с опциональным MMR.
+
+        Пайплайн:
+        1. Dense embedding через Embedder
+        2. Qdrant query (dense-only или hybrid prefetch+RRF)
+        3. MMR re-ranking для разнообразия (если включён)
         """
         logger.info(f"Выполнение поиска для запроса: {query}")
 
         try:
-            # Получение dense-эмбеддинга (нужен в обоих режимах)
             query_vector = self.get_embedding(query)
 
-            # ── Режим 1: Только dense (совместимость) ──
+            # Если MMR включён — запрашиваем больше результатов для выбора
+            fetch_limit = self.result_count
+            if self.mmr_enabled and self.mmr_lambda < 1.0:
+                fetch_limit = self.result_count * self.mmr_prefetch_multiplier
+
+            # ── Режим 1: Только dense ──
             if not self.hybrid_search:
                 search_results = self.qdrant_client.query_points(
                     collection_name=self.collection_name,
                     query=query_vector,
-                    limit=self.result_count,
+                    limit=fetch_limit,
                     with_payload=self.with_payload,
                     with_vectors=self.with_vectors,
                     using=self.vector_name,
@@ -254,7 +357,7 @@ class SearchEngine:
                         collection_name=self.collection_name,
                         prefetch=prefetch,
                         query=models.FusionQuery(fusion=models.Fusion.RRF),
-                        limit=self.result_count,
+                        limit=fetch_limit,
                         with_payload=self.with_payload,
                         with_vectors=self.with_vectors,
                         timeout=self.qdrant_timeout,
@@ -265,7 +368,7 @@ class SearchEngine:
                     search_results = self.qdrant_client.query_points(
                         collection_name=self.collection_name,
                         query=query_vector,
-                        limit=self.result_count,
+                        limit=fetch_limit,
                         with_payload=self.with_payload,
                         with_vectors=self.with_vectors,
                         using=self.vector_name,
@@ -280,6 +383,21 @@ class SearchEngine:
                     "payload": hit.payload,
                     "id": hit.id
                 })
+
+            # ── MMR re-ranking ──
+            if self.mmr_enabled and self.mmr_lambda < 1.0 and len(formatted_results) > 1:
+                before_count = len(formatted_results)
+                formatted_results = self.mmr_rerank(
+                    results=formatted_results,
+                    top_n=self.result_count,
+                    lambda_param=self.mmr_lambda,
+                )
+                logger.info(
+                    f"MMR: {before_count} → {len(formatted_results)} "
+                    f"(λ={self.mmr_lambda})"
+                )
+            else:
+                formatted_results = formatted_results[:self.result_count]
 
             logger.info(f"Поиск завершён, найдено {len(formatted_results)} результатов")
             return formatted_results
