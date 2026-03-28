@@ -76,7 +76,7 @@ class Config:
         self.SEARCHER_HOST: str = os.getenv("SEARCHER_HOST",
             normalized_config.get("SEARCHER_HOST", normalized_config.get("SEARCHERHOST", "localhost")))  # Адрес searcher сервиса
         self.SEARCHER_PORT: int = int(os.getenv("SEARCHER_PORT",
-            normalized_config.get("SEARCHER_PORT", normalized_config.get("SEARCHERPORT", 50052))))  # Порт searcher сервиса
+            normalized_config.get("SEARCHER_PORT", normalized_config.get("SEARCHERPORT", 50055))))  # Порт searcher сервиса
 
         # Полный адрес для подключения к searcher
         self.SEARCHER_ADDRESS: str = f"{self.SEARCHER_HOST}:{self.SEARCHER_PORT}"  # Полный адрес searcher сервиса

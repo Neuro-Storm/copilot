@@ -92,11 +92,11 @@ docker run -p 6333:6333 --name qdrant-container qdrant/qdrant
 
 Перед запуском сервиса убедитесь, что создали необходимую коллекцию в Qdrant:
 ```bash
-curl -X PUT 'http://localhost:6333/collections/documents' \
+curl -X PUT 'http://localhost:6333/collections/documents1024' \
 -H 'Content-Type: application/json' \
 -d '{
   "vectors": {
-    "size": 384,
+    "size": 1024,
     "distance": "Cosine"
   }
 }'

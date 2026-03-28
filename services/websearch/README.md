@@ -68,7 +68,7 @@ pip install -r requirements.txt
 Сервер использует следующие параметры конфигурации:
 
 - `SEARCHER_HOST` - адрес сервиса searcher (по умолчанию: localhost)
-- `SEARCHER_PORT` - порт сервиса searcher (по умолчанию: 50052)
+- `SEARCHER_PORT` - порт сервиса searcher (по умолчанию: 50055)
 - `GENERATOR_HOST` - адрес сервиса generator (по умолчанию: localhost)
 - `GENERATOR_PORT` - порт сервиса generator (по умолчанию: 50056)
 - `ENABLE_GENERATION` - включение генерации ответов (по умолчанию: false)
@@ -83,7 +83,7 @@ pip install -r requirements.txt
 
 ```bash
 export SEARCHER_HOST=localhost
-export SEARCHER_PORT=50052
+export SEARCHER_PORT=50055
 export GENERATOR_HOST=localhost
 export GENERATOR_PORT=50056
 export ENABLE_GENERATION=true
@@ -95,7 +95,7 @@ export WEB_SERVER_PORT=8001
 ```json
 {
   "SEARCHER_HOST": "localhost",
-  "SEARCHER_PORT": 50052,
+  "SEARCHER_PORT": 50055,
   "GENERATOR_HOST": "localhost",
   "GENERATOR_PORT": 50056,
   "ENABLE_GENERATION": true,
@@ -122,7 +122,7 @@ python websearch.py
 
 ## Подключение к searcher и generator сервисам
 
-Веб-интерфейс подключается к searcher сервису на порту 50052 (по умолчанию) и к generator сервису на порту 50056 (по умолчанию), что соответствует настройкам в конфигурации этих сервисов.
+Веб-интерфейс подключается к searcher сервису на порту 50055 (по умолчанию) и к generator сервису на порту 50056 (по умолчанию), что соответствует настройкам в конфигурации этих сервисов.
 
 ## API
 

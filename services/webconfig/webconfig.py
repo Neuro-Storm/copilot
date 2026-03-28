@@ -269,10 +269,15 @@ def detect_grpc_connections():
                 'status': 'configured'
             }
         elif service_name == 'indexer':
-            chunker_host = config_data.get('CHUNKER_HOST', 'localhost')
-            chunker_port = config_data.get('CHUNKER_PORT', 50052)
-            embedder_host = config_data.get('EMBEDDER_HOST', 'localhost')
-            embedder_port = config_data.get('EMBEDDER_PORT', 50051)
+            # indexer/config.json использует вложенные ключи: chunker_service.host, embedder_service.host
+            chunker_host = config_data.get('chunker_service', {}).get('host',
+                          config_data.get('CHUNKER_HOST', 'localhost'))
+            chunker_port = config_data.get('chunker_service', {}).get('port',
+                          config_data.get('CHUNKER_PORT', 50052))
+            embedder_host = config_data.get('embedder_service', {}).get('host',
+                          config_data.get('EMBEDDER_HOST', 'localhost'))
+            embedder_port = config_data.get('embedder_service', {}).get('port',
+                          config_data.get('EMBEDDER_PORT', 50051))
 
             detected_connections[f"{service_name}_to_chunker"] = {
                 'service_name': service_name,
