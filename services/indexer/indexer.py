@@ -23,6 +23,9 @@ import asyncio
 import uuid
 import time
 import threading
+import math
+import re
+from collections import defaultdict, Counter
 
 # Загрузка переменных окружения из .env файла
 try:
@@ -150,6 +153,101 @@ def get_config():
     return _config_instance
 
 
+# ─── BM25 Sparse Vector Encoder ───────────────────────────────
+
+_STOP_WORDS = {
+    'и', 'в', 'на', 'с', 'по', 'для', 'из', 'к', 'от', 'за', 'о', 'об',
+    'до', 'не', 'но', 'а', 'что', 'как', 'это', 'все', 'он', 'она', 'они',
+    'мы', 'вы', 'я', 'ты', 'при', 'так', 'же', 'бы', 'ли', 'уже', 'был',
+    'была', 'было', 'были', 'быть', 'если', 'его', 'её', 'их', 'или',
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
+    'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+    'of', 'in', 'to', 'for', 'with', 'on', 'at', 'from', 'by', 'as',
+    'or', 'and', 'but', 'if', 'not', 'no', 'this', 'that', 'it',
+}
+_TOKEN_RE = re.compile(r'[a-zA-Zа-яА-ЯёЁ0-9]+', re.UNICODE)
+
+
+def tokenize(text: str) -> list:
+    """Простая токенизация: lowercase + split + стоп-слова."""
+    tokens = _TOKEN_RE.findall(text.lower())
+    return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
+
+
+class BM25SparseEncoder:
+    """Вычисляет BM25 sparse vectors для хранения в Qdrant.
+
+    Термы кодируются в числовые индексы через стабильный хеш (hash(term) % vocab_size).
+    Значения — BM25-подобные TF-веса. IDF применяется при поиске на стороне Searcher'а
+    или приближённо при индексации.
+
+    При индексации используется упрощённая формула без IDF:
+        weight = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avgdl))
+
+    Это корректный TF-компонент BM25. IDF-компонент не нужен для sparse vector search,
+    потому что Qdrant при поиске по sparse vectors считает dot product между
+    query sparse vector и stored sparse vector — IDF можно закодировать в query vector.
+    """
+
+    def __init__(self, k1: float = 1.5, b: float = 0.75, vocab_size: int = 50000):
+        self.k1 = k1
+        self.b = b
+        self.vocab_size = vocab_size
+
+        # Статистика корпуса для IDF (накапливается при индексации)
+        self.doc_count = 0
+        self.doc_freqs = defaultdict(int)
+        self.total_length = 0
+
+    def _term_to_index(self, term: str) -> int:
+        """Стабильное отображение терма в числовой индекс."""
+        return hash(term) % self.vocab_size
+
+    @property
+    def avg_doc_length(self) -> float:
+        if self.doc_count == 0:
+            return 1.0
+        return self.total_length / self.doc_count
+
+    def encode_document(self, text: str) -> dict:
+        """Кодирует текст документа в sparse vector для Qdrant.
+
+        Returns:
+            dict с ключами 'indices' (list[int]) и 'values' (list[float])
+            или None, если текст пуст после токенизации.
+        """
+        tokens = tokenize(text)
+        if not tokens:
+            return None
+
+        self.doc_count += 1
+        self.total_length += len(tokens)
+        seen_terms = set()
+
+        tf_counts = Counter(tokens)
+        dl = len(tokens)
+        avgdl = self.avg_doc_length
+
+        indices = []
+        values = []
+
+        for term, tf in tf_counts.items():
+            term_idx = self._term_to_index(term)
+
+            if term not in seen_terms:
+                self.doc_freqs[term_idx] += 1
+                seen_terms.add(term)
+
+            numerator = tf * (self.k1 + 1)
+            denominator = tf + self.k1 * (1 - self.b + self.b * dl / avgdl)
+            weight = numerator / denominator
+
+            indices.append(term_idx)
+            values.append(weight)
+
+        return {"indices": indices, "values": values}
+
+
 class IndexerService(indexer_pb2_grpc.IndexerServiceServicer):
     """gRPC сервис для индексации документов в векторной базе данных Qdrant.
 
@@ -183,6 +281,19 @@ class IndexerService(indexer_pb2_grpc.IndexerServiceServicer):
         )
         self.collection_name = config['qdrant']['collection_name']
 
+        # ── BM25 Sparse Encoder ──
+        bm25_cfg = config.get('bm25', {})
+        self.enable_sparse = config['qdrant'].get('enable_sparse', False)
+        self.sparse_vector_name = config['qdrant'].get('sparse_vector_name', 'bm25_sparse')
+        if self.enable_sparse:
+            self.sparse_encoder = BM25SparseEncoder(
+                k1=bm25_cfg.get('k1', 1.5),
+                b=bm25_cfg.get('b', 0.75),
+            )
+            logger.info("BM25 sparse encoder инициализирован")
+        else:
+            self.sparse_encoder = None
+
     def _make_channel(self, host, port):
         """Создает асинхронный gRPC канал с поддержкой больших сообщений.
 
@@ -211,12 +322,32 @@ class IndexerService(indexer_pb2_grpc.IndexerServiceServicer):
         """
         config = get_config()
         vector_size = config['qdrant']['vector_size']
+        sparse_name = config['qdrant'].get('sparse_vector_name', 'bm25_sparse')
+        enable_sparse = config['qdrant'].get('enable_sparse', False)
+
         if not await self.qdrant_client.collection_exists(self.collection_name):
+            # Конфигурация sparse vectors (если включено)
+            sparse_config = None
+            if enable_sparse:
+                sparse_config = {
+                    sparse_name: models.SparseVectorParams(
+                        modifier=models.Modifier.IDF
+                    )
+                }
+
             await self.qdrant_client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE)
+                vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
+                sparse_vectors_config=sparse_config,
             )
-            logger.info(f"Создана коллекция {self.collection_name} с размером вектора {vector_size}")
+
+            msg = f"Создана коллекция {self.collection_name} (dense={vector_size}"
+            if enable_sparse:
+                msg += f", sparse={sparse_name}"
+            msg += ")"
+            logger.info(msg)
+        else:
+            logger.info(f"Коллекция {self.collection_name} уже существует")
 
     async def collect_document_data(self, request_iterator):
         """Асинхронно собирает данные документа из потока запросов с валидацией.
@@ -375,9 +506,23 @@ class IndexerService(indexer_pb2_grpc.IndexerServiceServicer):
 
                 # Создать точку для Qdrant
                 # Точка содержит уникальный ID, вектор эмбеддинга и метаданные
+                vectors = embedding  # dense vector (по умолчанию)
+
+                # Если включён sparse — добавляем BM25 sparse vector
+                if self.enable_sparse and self.sparse_encoder:
+                    sparse_data = self.sparse_encoder.encode_document(chunk.text)
+                    if sparse_data:
+                        vectors = {
+                            "": embedding,  # dense vector (безымянный = основной)
+                            self.sparse_vector_name: models.SparseVector(
+                                indices=sparse_data["indices"],
+                                values=sparse_data["values"],
+                            )
+                        }
+
                 point = models.PointStruct(
                     id=chunk_id,
-                    vector=embedding,
+                    vector=vectors,
                     payload=chunk_metadata
                 )
 

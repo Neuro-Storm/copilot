@@ -13,5 +13,9 @@
   "with_vectors": false,
   "log_file": "searcher.log",
   "max_workers": 10,
-  "qdrant_timeout": 10
+  "qdrant_timeout": 10,
+
+  "hybrid_search": true,
+  "sparse_vector_name": "bm25_sparse",
+  "hybrid_prefetch_limit": 20
 }

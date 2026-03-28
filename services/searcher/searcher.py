@@ -5,8 +5,12 @@ import sys
 from typing import Dict, List, Any
 from concurrent import futures
 import time
+import math
+import re
+from collections import Counter
 
 from qdrant_client import QdrantClient
+from qdrant_client.http import models
 
 # Импорт сгенерированных protobuf модулей
 import embedder_pb2
@@ -15,6 +19,45 @@ import embedder_pb2_grpc
 # Импорт searcher proto модулей
 import searcher_pb2
 import searcher_pb2_grpc
+
+# ─── Токенизация для BM25 query encoding ──────────────────────
+_STOP_WORDS = {
+    'и', 'в', 'на', 'с', 'по', 'для', 'из', 'к', 'от', 'за', 'о', 'об',
+    'до', 'не', 'но', 'а', 'что', 'как', 'это', 'все', 'он', 'она', 'они',
+    'мы', 'вы', 'я', 'ты', 'при', 'так', 'же', 'бы', 'ли', 'уже', 'был',
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
+    'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+    'of', 'in', 'to', 'for', 'with', 'on', 'at', 'from', 'by', 'as',
+    'or', 'and', 'but', 'if', 'not', 'no', 'this', 'that', 'it',
+}
+_TOKEN_RE = re.compile(r'[a-zA-Zа-яА-ЯёЁ0-9]+', re.UNICODE)
+_VOCAB_SIZE = 50000  # Должен совпадать с indexer'ом!
+
+
+def tokenize(text: str) -> list:
+    """Простая токенизация: lowercase + split + стоп-слова."""
+    tokens = _TOKEN_RE.findall(text.lower())
+    return [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
+
+
+def encode_sparse_query(text: str) -> dict:
+    """Кодирует запрос в sparse vector.
+
+    Для запроса не нужен IDF из корпуса — каждый терм получает вес 1.0.
+    Qdrant с модификатором Modifier.IDF сам применит IDF при скоринге.
+    """
+    tokens = tokenize(text)
+    if not tokens:
+        return None
+
+    seen = {}
+    for term in tokens:
+        idx = hash(term) % _VOCAB_SIZE
+        if idx not in seen:
+            seen[idx] = 1.0  # Вес = 1.0, IDF применит Qdrant
+
+    return {"indices": list(seen.keys()), "values": list(seen.values())}
+
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +141,11 @@ class SearchEngine:
         self.max_workers = config.get("max_workers", 10)
         self.qdrant_timeout = config.get("qdrant_timeout", 10)
 
+        # ── Гибридный поиск ──
+        self.hybrid_search = config.get("hybrid_search", False)
+        self.sparse_vector_name = config.get("sparse_vector_name", "bm25_sparse")
+        self.hybrid_prefetch_limit = config.get("hybrid_prefetch_limit", 20)
+
     def get_embedding(self, text: str) -> List[float]:
         """Получает векторное представление для заданного текста из сервиса embedder.
 
@@ -137,43 +185,77 @@ class SearchEngine:
             raise
 
     def search(self, query: str) -> List[Dict[str, Any]]:
-        """Выполняет семантический поиск с заданным запросом.
+        """Выполняет поиск: чисто семантический или гибридный (dense + sparse).
 
-        Args:
-            query: Текст поискового запроса
-
-        Returns:
-            Список словарей, содержащих результаты поиска с их метаданными
+        При hybrid_search=true используется Qdrant Prefetch + RRF:
+        - prefetch 1: dense vector search (embedder → cosine)
+        - prefetch 2: sparse vector search (BM25 tokens)
+        - fusion: reciprocal rank fusion встроенный в Qdrant
         """
         logger.info(f"Выполнение поиска для запроса: {query}")
 
         try:
-            # Получение эмбеддинга для запроса
+            # Получение dense-эмбеддинга (нужен в обоих режимах)
             query_vector = self.get_embedding(query)
 
-            # Выполнение поиска в Qdrant с использованием метода query_points
-            # Указание имени вектора, если коллекция имеет именованные векторы
-            search_results = self.qdrant_client.query_points(
-                collection_name=self.collection_name,
-                query=query_vector,
-                limit=self.result_count,
-                with_payload=self.with_payload,
-                with_vectors=self.with_vectors,
-                using=self.vector_name,  # Использование имени вектора из конфигурации
-                timeout=self.qdrant_timeout  # Использование таймаута из конфигурации
-            ).points
+            # ── Режим 1: Только dense (совместимость) ──
+            if not self.hybrid_search:
+                search_results = self.qdrant_client.query_points(
+                    collection_name=self.collection_name,
+                    query=query_vector,
+                    limit=self.result_count,
+                    with_payload=self.with_payload,
+                    with_vectors=self.with_vectors,
+                    using=self.vector_name,
+                    timeout=self.qdrant_timeout
+                ).points
+            else:
+                # ── Режим 2: Гибридный (dense + sparse + RRF fusion) ──
+                sparse_query = encode_sparse_query(query)
+
+                prefetch = [
+                    # Dense prefetch
+                    models.Prefetch(
+                        query=query_vector,
+                        using=self.vector_name,
+                        limit=self.hybrid_prefetch_limit,
+                    ),
+                ]
+
+                # Sparse prefetch (только если есть токены)
+                if sparse_query:
+                    prefetch.append(
+                        models.Prefetch(
+                            query=models.SparseVector(
+                                indices=sparse_query["indices"],
+                                values=sparse_query["values"],
+                            ),
+                            using=self.sparse_vector_name,
+                            limit=self.hybrid_prefetch_limit,
+                        )
+                    )
+
+                # Qdrant Query с Reciprocal Rank Fusion
+                search_results = self.qdrant_client.query_points(
+                    collection_name=self.collection_name,
+                    prefetch=prefetch,
+                    query=models.FusionQuery(fusion=models.Fusion.RRF),
+                    limit=self.result_count,
+                    with_payload=self.with_payload,
+                    with_vectors=self.with_vectors,
+                    timeout=self.qdrant_timeout,
+                ).points
 
             # Форматирование результатов
             formatted_results = []
             for hit in search_results:
-                result = {
+                formatted_results.append({
                     "score": hit.score,
                     "payload": hit.payload,
                     "id": hit.id
-                }
-                formatted_results.append(result)
+                })
 
-            logger.info(f"Поиск успешно завершен, найдено {len(formatted_results)} результатов")
+            logger.info(f"Поиск завершён, найдено {len(formatted_results)} результатов")
             return formatted_results
 
         except Exception as e:
