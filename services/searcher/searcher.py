@@ -314,6 +314,9 @@ class SearchEngine:
             if self.mmr_enabled and self.mmr_lambda < 1.0:
                 fetch_limit = self.result_count * self.mmr_prefetch_multiplier
 
+            # Гарантируем, что prefetch отдаст достаточно результатов для MMR
+            effective_prefetch_limit = max(self.hybrid_prefetch_limit, fetch_limit)
+
             # ── Режим 1: Только dense ──
             if not self.hybrid_search:
                 search_results = self.qdrant_client.query_points(
@@ -334,7 +337,7 @@ class SearchEngine:
                     models.Prefetch(
                         query=query_vector,
                         using=self.vector_name,
-                        limit=self.hybrid_prefetch_limit,
+                        limit=effective_prefetch_limit,
                     ),
                 ]
 
@@ -347,7 +350,7 @@ class SearchEngine:
                                 values=sparse_query["values"],
                             ),
                             using=self.sparse_vector_name,
-                            limit=self.hybrid_prefetch_limit,
+                            limit=effective_prefetch_limit,
                         )
                     )
 
