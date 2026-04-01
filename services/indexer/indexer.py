@@ -26,6 +26,7 @@ import threading
 import math
 import re
 import hashlib
+import signal
 from collections import defaultdict, Counter
 
 # Загрузка переменных окружения из .env файла
@@ -199,15 +200,47 @@ class BM25SparseEncoder:
     query sparse vector и stored sparse vector — IDF можно закодировать в query vector.
     """
 
-    def __init__(self, k1: float = 1.5, b: float = 0.75, vocab_size: int = 50000):
+    def __init__(self, k1: float = 1.5, b: float = 0.75, vocab_size: int = 50000,
+                 stats_path: str = 'bm25_stats.json'):
         self.k1 = k1
         self.b = b
         self.vocab_size = vocab_size
+        self.stats_path = stats_path
 
         # Статистика корпуса для IDF (накапливается при индексации)
         self.doc_count = 0
         self.doc_freqs = defaultdict(int)
         self.total_length = 0
+        
+        # Загружаем сохранённую статистику
+        self._load_stats()
+
+    def _load_stats(self):
+        """Загружает статистику BM25 из файла при старте."""
+        if os.path.exists(self.stats_path):
+            try:
+                with open(self.stats_path, 'r', encoding='utf-8') as f:
+                    stats = json.load(f)
+                self.doc_freqs = defaultdict(int, stats.get('doc_freqs', {}))
+                self.doc_count = stats.get('doc_count', 0)
+                self.total_length = stats.get('total_length', 0)
+                logger.info(f"Загружена статистика BM25: {self.doc_count} документов, "
+                           f"{len(self.doc_freqs)} уникальных терминов")
+            except Exception as e:
+                logger.warning(f"Не удалось загрузить статистику BM25: {e}")
+
+    def save_stats(self):
+        """Сохраняет статистику BM25 в файл."""
+        try:
+            with open(self.stats_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'doc_freqs': dict(self.doc_freqs),
+                    'doc_count': self.doc_count,
+                    'total_length': self.total_length
+                }, f, ensure_ascii=False)
+            logger.info(f"Сохранена статистика BM25: {self.doc_count} документов")
+        except Exception as e:
+            logger.error(f"Не удалось сохранить статистику BM25: {e}")
 
     def _term_to_index(self, term: str) -> int:
         """Стабильное отображение терма в числовой индекс."""
@@ -232,28 +265,34 @@ class BM25SparseEncoder:
 
         self.doc_count += 1
         self.total_length += len(tokens)
-        seen_terms = set()
 
         tf_counts = Counter(tokens)
         dl = len(tokens)
         avgdl = self.avg_doc_length
 
-        indices = []
-        values = []
+        # Используем dict для агрегации весов по уникальным индексам
+        # (на случай коллизий хеша разных терминов в один индекс)
+        index_weights = {}
 
         for term, tf in tf_counts.items():
             term_idx = self._term_to_index(term)
 
-            if term not in seen_terms:
-                self.doc_freqs[term_idx] += 1
-                seen_terms.add(term)
-
+            # Вычисляем BM25 вес для этого термина
             numerator = tf * (self.k1 + 1)
             denominator = tf + self.k1 * (1 - self.b + self.b * dl / avgdl)
             weight = numerator / denominator
 
-            indices.append(term_idx)
-            values.append(weight)
+            # Если индекс уже существует (коллизия), суммируем веса
+            if term_idx in index_weights:
+                index_weights[term_idx] += weight
+            else:
+                index_weights[term_idx] = weight
+                # Обновляем doc_freq только для новых уникальных индексов
+                self.doc_freqs[term_idx] += 1
+
+        # Преобразуем в списки indices/values
+        indices = list(index_weights.keys())
+        values = list(index_weights.values())
 
         return {"indices": indices, "values": values}
 
@@ -568,6 +607,10 @@ class IndexerService(indexer_pb2_grpc.IndexerServiceServicer):
         Метод обеспечивает корректное завершение работы всех gRPC каналов и
         клиента Qdrant, освобождая сетевые ресурсы.
         """
+        # Сохраняем статистику BM25 перед закрытием
+        if self.sparse_encoder:
+            self.sparse_encoder.save_stats()
+
         try:
             await self.chunker_channel.close()
         except Exception as e:
@@ -617,10 +660,20 @@ async def serve():
     await server.start()
     logger.info("Сервер индексации запущен. Ожидание запросов...")
 
+    # Обработчик сигналов для сохранения статистики при Ctrl+C
+    def signal_handler(sig, frame):
+        logger.info(f"Получен сигнал {sig}, сохранение статистики...")
+        if indexer_service.sparse_encoder:
+            indexer_service.sparse_encoder.save_stats()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     try:
         await server.wait_for_termination()
     finally:
-        # Гарантированное закрытие соединений
+        # Гарантированное закрытие соединений и сохранение статистики
         await indexer_service.close()
         await server.stop(grace=5)
 
